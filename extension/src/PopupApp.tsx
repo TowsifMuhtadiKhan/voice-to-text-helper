@@ -275,11 +275,26 @@ export const PopupApp: React.FC = () => {
           </button>
 
           <button
+            type="button"
+            className="action-icon-header-btn"
+            onClick={() => window.close()}
+            title="Minimize popup (–)"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+          </button>
+
+          <button
+            type="button"
             className="close-btn"
             onClick={handleCloseSession}
-            title="End session and close popup"
+            title="End session and close (×)"
           >
-            Close
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
           </button>
         </div>
       </header>

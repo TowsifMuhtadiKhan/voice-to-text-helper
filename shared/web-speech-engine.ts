@@ -216,7 +216,14 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
       if (event.error === 'no-speech' && this.shouldBeListening) {
         return;
       }
-      if (event.error === 'aborted' && !this.shouldBeListening) {
+      if (event.error === 'aborted') {
+        if (this.shouldBeListening) {
+          try {
+            this.recognition?.start();
+          } catch {
+            // Ignore
+          }
+        }
         return;
       }
 
