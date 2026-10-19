@@ -6,7 +6,6 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distDir = path.join(__dirname, 'dist');
-const port = 3000;
 
 process.on('uncaughtException', (err) => {
   console.error('Server uncaught exception:', err);
@@ -83,10 +82,24 @@ const server = http.createServer((req, res) => {
   }
 });
 
-server.on('error', (err) => {
-  console.error('HTTP Server error:', err);
+let currentPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+
+server.on('listening', () => {
+  const addr = server.address();
+  const actualPort = typeof addr === 'object' && addr ? addr.port : currentPort;
+  console.log(`Universal Voice-to-Text Web Platform running at http://localhost:${actualPort}`);
 });
 
-server.listen(port, 'localhost', () => {
-  console.log(`Universal Voice-to-Text Web Platform running at http://localhost:${port}`);
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.warn(`Port ${currentPort} is in use. Trying port ${currentPort + 1}...`);
+    currentPort += 1;
+    server.close(() => {
+      server.listen(currentPort, 'localhost');
+    });
+  } else {
+    console.error('HTTP Server error:', err);
+  }
 });
+
+server.listen(currentPort, 'localhost');
