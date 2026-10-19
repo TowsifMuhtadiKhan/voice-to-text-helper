@@ -1,0 +1,22 @@
+{
+  "name": "Universal Voice-to-Text Helper",
+  "short_name": "VoiceText",
+  "description": "Clean, distraction-free speech-to-text notepad and voice transcription web app.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121318",
+  "theme_color": "#121318",
+  "icons": [
+    {
+      "src": "assets/icon32.png",
+      "sizes": "32x32",
+      "type": "image/png"
+    },
+    {
+      "src": "assets/logo-with-text.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

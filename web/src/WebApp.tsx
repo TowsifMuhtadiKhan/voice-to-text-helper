@@ -23,10 +23,37 @@ export const WebApp: React.FC = () => {
   const [wordCount, setWordCount] = useState(0);
   const [newFrom, setNewFrom] = useState('');
   const [newTo, setNewTo] = useState('');
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   const replacementsRef = useRef<WordReplacement[]>(replacements);
   replacementsRef.current = replacements;
   const committedTextRef = useRef<string>('');
+
+  useEffect(() => {
+    const handleBeforeInstall = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+    window.addEventListener('beforeinstallprompt', handleBeforeInstall);
+    return () => window.removeEventListener('beforeinstallprompt', handleBeforeInstall);
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice?.outcome === 'accepted') {
+        setDeferredPrompt(null);
+      }
+    } else {
+      alert(
+        "To open VoiceText as a standalone PC App window (without Google Chrome tabs or address bar):\n\n" +
+        "1. In Chrome / Edge, click the 3 dots menu (⋮) in the top right.\n" +
+        "2. Select 'Cast, save, and share' (or 'Apps') -> 'Install VoiceText as an app'.\n\n" +
+        "It will open in its own clean window with its own icon in the Windows taskbar!"
+      );
+    }
+  };
 
   useEffect(() => {
     const store = storeRef.current!;
@@ -206,6 +233,20 @@ export const WebApp: React.FC = () => {
                 <span>Dark</span>
               </>
             )}
+          </button>
+          <button
+            type="button"
+            className="extension-btn"
+            style={{ background: '#059669', borderColor: '#10b981', color: '#ffffff' }}
+            onClick={handleInstallApp}
+            title="Open or install VoiceText as a standalone PC application without Chrome tabs or address bar"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '6px' }}>
+              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+              <line x1="8" y1="21" x2="16" y2="21"></line>
+              <line x1="12" y1="17" x2="12" y2="21"></line>
+            </svg>
+            App Window Mode
           </button>
           <a
             href="/download/extension.zip"

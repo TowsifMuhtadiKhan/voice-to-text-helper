@@ -77,6 +77,10 @@ async function buildWeb() {
     path.join(__dirname, 'web', 'src', 'styles.css'),
     path.join(webDist, 'web.css')
   );
+  fs.copyFileSync(
+    path.join(__dirname, 'web', 'src', 'manifest.json'),
+    path.join(webDist, 'manifest.json')
+  );
 
   const webAssets = path.join(webDist, 'assets');
   fs.mkdirSync(webAssets, { recursive: true });
