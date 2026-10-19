@@ -1,6 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { SessionState } from '../../shared/session-store';
-import { RecognitionErrorEvent, RecognitionStatus } from '../../shared/speech-interface';
+import {
+  RecognitionErrorEvent,
+  RecognitionStatus,
+  SUPPORTED_LANGUAGES,
+  SupportedLanguage,
+} from '../../shared/speech-interface';
 import { WebSpeechRecognitionEngine } from '../../shared/web-speech-engine';
 import { SoundWave } from '../../shared/SoundWave';
 import { applyWordReplacements, DEFAULT_REPLACEMENTS, WordReplacement } from '../../shared/word-replacer';
@@ -210,7 +215,30 @@ export const PopupApp: React.FC = () => {
     setState((prev) => ({ ...prev, sessionTranscript: '', interimText: '' }));
   };
 
+  const handlePause = async () => {
+    if (engineRef.current) {
+      await engineRef.current.pause();
+    }
+    chrome.runtime.sendMessage({ type: 'PAUSE_DICTATION' }).catch(() => {});
+  };
+
+  const handleResume = async () => {
+    if (engineRef.current) {
+      await engineRef.current.resume();
+    }
+    chrome.runtime.sendMessage({ type: 'RESUME_DICTATION' }).catch(() => {});
+  };
+
+  const handleLanguageChange = (code: SupportedLanguage) => {
+    setState((prev) => ({ ...prev, language: code }));
+    if (engineRef.current) {
+      engineRef.current.setLanguage(code);
+    }
+    chrome.runtime.sendMessage({ type: 'SET_LANGUAGE', language: code }).catch(() => {});
+  };
+
   const isListening = state.status === 'listening' || state.status === 'starting';
+  const isPaused = state.status === 'paused';
   const hasInterim = Boolean(state.interimText && state.interimText.trim().length > 0);
   const isSpeaking = isListening && hasInterim;
 
@@ -221,8 +249,16 @@ export const PopupApp: React.FC = () => {
     switch (state.status) {
       case 'listening':
         return 'Listening...';
+      case 'paused':
+        return 'Paused';
       case 'starting':
         return 'Starting...';
+      case 'mic-blocked':
+        return 'Mic Blocked';
+      case 'mic-disconnected':
+        return 'Mic Disconnected';
+      case 'unavailable':
+        return 'Unavailable';
       case 'stopped':
         return 'Stopped';
       case 'error':
@@ -299,6 +335,22 @@ export const PopupApp: React.FC = () => {
         </div>
       </header>
 
+      {/* Language Selector Bar */}
+      <div className="popup-lang-bar">
+        <label className="lang-bar-label">Language:</label>
+        <select
+          className="popup-lang-select"
+          value={state.language}
+          onChange={(e) => handleLanguageChange(e.target.value as SupportedLanguage)}
+        >
+          {SUPPORTED_LANGUAGES.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.label}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {/* Permission Warning Card if mic permission is needed or denied */}
       {hasPermission === false && (
         <div className="permission-prompt-card">
@@ -325,7 +377,7 @@ export const PopupApp: React.FC = () => {
       <section
         className={`popup-mic-dock ${isListening ? 'listening' : ''} ${
           isSpeaking ? 'speaking-alarm-active' : ''
-        }`}
+        } ${isPaused ? 'paused' : ''}`}
       >
         <button
           className={`big-mic-btn ${isListening ? 'recording' : ''} ${
@@ -356,7 +408,7 @@ export const PopupApp: React.FC = () => {
             <span
               className={`status-dot ${isListening ? 'listening' : ''} ${
                 isSpeaking ? 'speaking' : ''
-              } ${state.status === 'error' ? 'error' : ''}`}
+              } ${isPaused ? 'paused' : ''} ${state.status === 'error' || state.status.startsWith('mic') ? 'error' : ''}`}
             />
             <span className={`mic-title ${isSpeaking ? 'speaking-title' : ''}`}>
               {statusLabel}
@@ -369,6 +421,8 @@ export const PopupApp: React.FC = () => {
               <span className="live-speaking-text">&ldquo;{state.interimText}&rdquo;</span>
             ) : isListening ? (
               'Listening... Speak now'
+            ) : isPaused ? (
+              'Recording paused'
             ) : isRestricted ? (
               'Click Start to record in popup'
             ) : (
@@ -385,11 +439,39 @@ export const PopupApp: React.FC = () => {
           />
         )}
 
+        {/* Pause / Resume Button */}
+        {isListening && (
+          <button
+            type="button"
+            className="dock-pause-btn"
+            onClick={handlePause}
+            title="Pause Recording"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <rect x="6" y="4" width="4" height="16" />
+              <rect x="14" y="4" width="4" height="16" />
+            </svg>
+          </button>
+        )}
+
+        {isPaused && (
+          <button
+            type="button"
+            className="dock-pause-btn resume"
+            onClick={handleResume}
+            title="Resume Recording"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+              <polygon points="5 3 19 12 5 21 5 3" />
+            </svg>
+          </button>
+        )}
+
         <button
-          className={`dock-action-btn ${isListening ? 'stop' : 'start'}`}
+          className={`dock-action-btn ${isListening ? 'stop' : isPaused ? 'stop' : 'start'}`}
           onClick={handleToggle}
         >
-          {isListening ? 'Stop' : 'Start'}
+          {isListening ? 'Stop' : isPaused ? 'Stop' : 'Start'}
         </button>
       </section>
 

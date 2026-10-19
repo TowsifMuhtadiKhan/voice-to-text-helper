@@ -1,9 +1,14 @@
 /**
  * Supported recognition languages.
- * English ('en-US') is enabled initially.
- * The interface is designed to support Bangla ('bn-BD') seamlessly.
  */
-export type SupportedLanguage = 'en-US' | 'bn-BD';
+export type SupportedLanguage =
+  | 'en-US'
+  | 'en-GB'
+  | 'bn-BD'
+  | 'hi-IN'
+  | 'ar-SA'
+  | 'es-ES'
+  | 'fr-FR';
 
 export interface LanguageOption {
   code: SupportedLanguage;
@@ -13,17 +18,28 @@ export interface LanguageOption {
 
 export const SUPPORTED_LANGUAGES: LanguageOption[] = [
   { code: 'en-US', label: 'English (US)', enabled: true },
-  { code: 'bn-BD', label: 'Bangla (বাংলা)', enabled: false }, // Ready for future activation
+  { code: 'en-GB', label: 'English (UK)', enabled: true },
+  { code: 'bn-BD', label: 'Bengali / বাংলা (BD)', enabled: true },
+  { code: 'hi-IN', label: 'Hindi / हिन्दी (IN)', enabled: true },
+  { code: 'ar-SA', label: 'Arabic / العربية', enabled: true },
+  { code: 'es-ES', label: 'Spanish / Español', enabled: true },
+  { code: 'fr-FR', label: 'French / Français', enabled: true },
 ];
 
-export type RecognitionStatus = 'idle' | 'starting' | 'listening' | 'stopped' | 'error';
+export type RecognitionStatus =
+  | 'idle'
+  | 'starting'
+  | 'listening'
+  | 'paused'
+  | 'stopped'
+  | 'error'
+  | 'mic-blocked'
+  | 'mic-disconnected'
+  | 'unavailable';
 
 export interface TranscriptUpdateEvent {
-  /** Interim (in-progress) recognized text that has not yet been finalized */
   interimText: string;
-  /** Finalized recognized segment (only present when a phrase/utterance is committed) */
   finalizedSegment?: string;
-  /** Full accumulated finalized transcript for the current temporary session */
   sessionTranscript: string;
 }
 
@@ -39,35 +55,15 @@ export interface SpeechRecognitionCallbacks {
   onError: (error: RecognitionErrorEvent) => void;
 }
 
-/**
- * Unified Speech Recognition Engine Interface
- * Used across both the Chrome/Edge Browser Extension and the Electron Desktop Application.
- *
- * Strictly speech-to-text only:
- * - Preserves original recognized words verbatim.
- * - Never rewrites sentences or generates artificial content.
- */
 export interface ISpeechRecognitionEngine {
-  /** Start capturing microphone audio and recognizing speech */
   start(): Promise<void>;
-
-  /** Stop capturing audio while keeping the current session transcript intact */
+  pause?(): Promise<void>;
+  resume?(): Promise<void>;
   stop(): Promise<void>;
-
-  /** Toggle between listening and stopped states */
   toggle(): Promise<void>;
-
-  /** Get current recognition status */
   getStatus(): RecognitionStatus;
-
-  /** Set recognition language ('en-US' initially, structured for 'bn-BD' later) */
   setLanguage(language: SupportedLanguage): void;
-
-  /** Get currently configured language */
   getLanguage(): SupportedLanguage;
-
-  /** Clean up resources when the session is explicitly closed */
   dispose(): Promise<void>;
-  /** Configure active word replacement rules */
   setReplacements?(replacements: any[]): void;
 }

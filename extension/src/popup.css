@@ -735,3 +735,82 @@ body {
   font-size: 10px;
   color: #e4e4e7;
 }
+
+/* ==========================================================================
+   VoiceText v2.0 - Extension Language Selector & Pause/Resume Dock Button
+   ========================================================================== */
+
+.popup-lang-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 5px 10px;
+}
+
+.lang-bar-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #a1a1aa;
+}
+
+.popup-lang-select {
+  background: #181920;
+  color: #f4f4f5;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+  flex: 1;
+  max-width: 220px;
+}
+
+.popup-lang-select:focus {
+  border-color: #3b82f6;
+}
+
+.popup-mic-dock.paused {
+  border-color: rgba(251, 191, 36, 0.5);
+  background: #1c1914;
+}
+
+.status-dot.paused {
+  background: #fbbf24;
+  box-shadow: 0 0 6px #fbbf24;
+}
+
+.dock-pause-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.dock-pause-btn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.06);
+}
+
+.dock-pause-btn.resume {
+  background: #fbbf24;
+  color: #000000;
+  border-color: #f59e0b;
+}
+
+.dock-pause-btn.resume:hover {
+  background: #f59e0b;
+}

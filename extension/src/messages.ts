@@ -7,6 +7,8 @@ export type ExtensionMessage =
   | { type: 'GET_STATE' }
   | { type: 'START_DICTATION' }
   | { type: 'STOP_DICTATION' }
+  | { type: 'PAUSE_DICTATION' }
+  | { type: 'RESUME_DICTATION' }
   | { type: 'TOGGLE_DICTATION' }
   | { type: 'TOGGLE_FLOATING_WIDGET' }
   | { type: 'CLOSE_SESSION' }

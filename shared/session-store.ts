@@ -7,7 +7,7 @@ export interface SessionState {
   interimText: string;
   /** Accumulated finalized text for the current active session only (stored purely in volatile memory) */
   sessionTranscript: string;
-  /** Optional error message if status === 'error' */
+  /** Optional error message if status === 'error' or mic blocked/disconnected */
   errorMessage: string | null;
   /** Current shortcut display string */
   shortcut: string;
@@ -20,7 +20,7 @@ export interface SessionState {
  * - Never persists to localStorage, IndexedDB, cookies, files, or external storage.
  * - Preserves finalized transcript when dictation is stopped or paused.
  * - Shows interim results separately so finalized text is never duplicated.
- * - Clears all transcript data immediately when clearSession() is called (on close).
+ * - Clears all transcript data immediately when clearSession() is called.
  */
 export class InMemorySessionStore {
   private state: SessionState;
@@ -43,8 +43,7 @@ export class InMemorySessionStore {
 
   public setStatus(status: RecognitionStatus, errorMessage: string | null = null): SessionState {
     this.state.status = status;
-    if (status !== 'listening') {
-      // Clear any dangling interim text when stopping/idle, while preserving sessionTranscript
+    if (status !== 'listening' && status !== 'paused') {
       this.state.interimText = '';
     }
     this.state.errorMessage = errorMessage;
@@ -53,16 +52,11 @@ export class InMemorySessionStore {
   }
 
   public setInterimText(interim: string): SessionState {
-    // Preserve original recognized words without modifying sessionTranscript
     this.state.interimText = interim.trim();
     this.notify();
     return this.getState();
   }
 
-  /**
-   * Commits a finalized speech segment into the current session transcript
-   * and returns the exact string (including leading space if needed) to insert at the cursor.
-   */
   public appendFinalSegment(rawSegment: string): {
     insertedSegment: string;
     state: SessionState;
@@ -101,9 +95,6 @@ export class InMemorySessionStore {
     return this.getState();
   }
 
-  /**
-   * Explicitly closes/resets the current session and wipes all temporary transcript data from RAM.
-   */
   public clearSession(): SessionState {
     this.state.status = 'idle';
     this.state.interimText = '';

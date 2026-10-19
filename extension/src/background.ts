@@ -123,6 +123,28 @@ chrome.runtime.onMessage.addListener(
         return true;
       }
 
+      case 'PAUSE_DICTATION': {
+        resolveTargetTabId(senderTabId).then(async (tabId) => {
+          if (tabId !== null) {
+            await ensureContentScriptAndSend(tabId, { type: 'PAUSE_DICTATION' });
+          }
+          sessionStore.setStatus('paused');
+          sendResponse(sessionStore.getState());
+        });
+        return true;
+      }
+
+      case 'RESUME_DICTATION': {
+        resolveTargetTabId(senderTabId).then(async (tabId) => {
+          if (tabId !== null) {
+            await ensureContentScriptAndSend(tabId, { type: 'RESUME_DICTATION' });
+          }
+          sessionStore.setStatus('listening');
+          sendResponse(sessionStore.getState());
+        });
+        return true;
+      }
+
       case 'TOGGLE_DICTATION': {
         resolveTargetTabId(senderTabId).then(async (tabId) => {
           const current = sessionStore.getState().status;

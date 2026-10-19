@@ -55,16 +55,14 @@ declare global {
 
 /**
  * Browser Web Speech API implementation of ISpeechRecognitionEngine.
- * Used by the Chrome and Edge Manifest V3 extension.
- *
- * Note: Chrome/Edge Web Speech API sends audio to the browser vendor's speech
- * recognition service. This is disclosed in the extension UI per Section 4.
+ * Supports start, pause, resume, stop, silence detection, and continuous recovery.
  */
 export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
   private recognition: SpeechRecognitionInstance | null = null;
   private status: RecognitionStatus = 'idle';
   private language: SupportedLanguage = 'en-US';
   private shouldBeListening = false;
+  private isPaused = false;
   private callbacks: SpeechRecognitionCallbacks;
 
   constructor(callbacks: SpeechRecognitionCallbacks, initialLanguage: SupportedLanguage = 'en-US') {
@@ -90,7 +88,7 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
         : undefined;
 
     if (!SpeechRecognitionCtor) {
-      this.setStatus('error');
+      this.setStatus('unavailable');
       this.callbacks.onError({
         code: 'unsupported',
         message: 'Speech recognition is not supported in this browser.',
@@ -99,6 +97,7 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
     }
 
     this.shouldBeListening = true;
+    this.isPaused = false;
     this.setStatus('starting');
 
     if (!this.recognition) {
@@ -110,7 +109,6 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
     try {
       this.recognition.start();
     } catch (err) {
-      // If already started, ignore or reset
       const message = err instanceof Error ? err.message : String(err);
       if (!message.toLowerCase().includes('already started')) {
         this.shouldBeListening = false;
@@ -123,9 +121,30 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
     }
   }
 
+  public async pause(): Promise<void> {
+    if (!this.shouldBeListening || this.isPaused) return;
+    this.isPaused = true;
+    this.shouldBeListening = false;
+    if (this.recognition) {
+      try {
+        this.recognition.stop();
+      } catch {
+        // Ignore
+      }
+    }
+    this.setStatus('paused');
+  }
+
+  public async resume(): Promise<void> {
+    if (!this.isPaused && this.status !== 'paused') return;
+    this.isPaused = false;
+    await this.start();
+  }
+
   public async stop(): Promise<void> {
     this.shouldBeListening = false;
-    if (this.recognition && (this.status === 'listening' || this.status === 'starting')) {
+    this.isPaused = false;
+    if (this.recognition && (this.status === 'listening' || this.status === 'starting' || this.status === 'paused')) {
       try {
         this.recognition.stop();
       } catch {
@@ -138,6 +157,8 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
   public async toggle(): Promise<void> {
     if (this.status === 'listening' || this.status === 'starting') {
       await this.stop();
+    } else if (this.status === 'paused') {
+      await this.resume();
     } else {
       await this.start();
     }
@@ -160,6 +181,7 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
 
   public async dispose(): Promise<void> {
     this.shouldBeListening = false;
+    this.isPaused = false;
     if (this.recognition) {
       this.recognition.onstart = null;
       this.recognition.onend = null;
@@ -185,10 +207,14 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
     instance.lang = this.language;
 
     instance.onstart = () => {
-      this.setStatus('listening');
+      if (!this.isPaused) {
+        this.setStatus('listening');
+      }
     };
 
     instance.onresult = (event: SpeechRecognitionEvent) => {
+      if (this.isPaused) return;
+
       let interimTranscript = '';
       let finalTranscript = '';
 
@@ -203,21 +229,18 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
       }
 
       if (finalTranscript.trim().length > 0) {
-        // Emit finalized segment once without altering or rewriting words
         this.callbacks.onFinalResult(finalTranscript.trim());
       }
 
-      // Emit current interim text (empty string if everything in this frame was finalized)
       this.callbacks.onInterimResult(interimTranscript.trim());
     };
 
     instance.onerror = (event: SpeechRecognitionErrorEvent) => {
-      // 'no-speech' during continuous dictation just means silence occurred; keep listening
       if (event.error === 'no-speech' && this.shouldBeListening) {
         return;
       }
       if (event.error === 'aborted') {
-        if (this.shouldBeListening) {
+        if (this.shouldBeListening && !this.isPaused) {
           try {
             this.recognition?.start();
           } catch {
@@ -227,19 +250,18 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
         return;
       }
 
-      // Chrome transient network hiccup: automatically attempt recovery if user wanted to keep listening
-      if (event.error === 'network' && this.shouldBeListening) {
+      if (event.error === 'network' && this.shouldBeListening && !this.isPaused) {
         this.setStatus('starting');
         setTimeout(() => {
-          if (this.shouldBeListening && this.recognition) {
+          if (this.shouldBeListening && !this.isPaused && this.recognition) {
             try {
               this.recognition.start();
               return;
             } catch {
-              // Fall through if restart fails
+              // Ignore
             }
           }
-          if (this.shouldBeListening) {
+          if (this.shouldBeListening && !this.isPaused) {
             this.setStatus('error');
             this.callbacks.onError({
               code: 'network',
@@ -251,15 +273,19 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
       }
 
       this.shouldBeListening = false;
-      this.setStatus('error');
 
       let friendlyMessage = event.message || `Speech recognition error: ${event.error}`;
       if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
-        friendlyMessage = 'Microphone access denied. Please allow microphone permission in browser.';
+        this.setStatus('mic-blocked');
+        friendlyMessage = 'Microphone access denied. Please click the lock or camera icon in the address bar to allow microphone permission.';
       } else if (event.error === 'audio-capture') {
-        friendlyMessage = 'No microphone detected. Please connect a microphone.';
+        this.setStatus('mic-disconnected');
+        friendlyMessage = 'No microphone detected or microphone disconnected. Please connect a microphone.';
       } else if (event.error === 'network') {
+        this.setStatus('error');
         friendlyMessage = 'Browser speech service connection error. Please check your internet connection.';
+      } else {
+        this.setStatus('error');
       }
 
       this.callbacks.onError({
@@ -269,16 +295,15 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
     };
 
     instance.onend = () => {
-      if (this.shouldBeListening) {
-        // Automatically resume continuous recognition after browser silence timeout
+      if (this.shouldBeListening && !this.isPaused) {
         try {
           instance.start();
           return;
         } catch {
-          // Fall through to stopped state if restart fails
+          // Ignore
         }
       }
-      if (this.status !== 'error' && this.status !== 'idle') {
+      if (!this.isPaused && this.status !== 'error' && this.status !== 'idle' && this.status !== 'mic-blocked' && this.status !== 'mic-disconnected') {
         this.setStatus('stopped');
       }
     };

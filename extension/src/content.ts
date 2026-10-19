@@ -86,6 +86,18 @@ function initContentScript(): void {
         return false;
       }
 
+      case 'PAUSE_DICTATION': {
+        engine.pause();
+        sendResponse({ ok: true });
+        return false;
+      }
+
+      case 'RESUME_DICTATION': {
+        engine.resume();
+        sendResponse({ ok: true });
+        return false;
+      }
+
       case 'TOGGLE_DICTATION': {
         if (engine.getStatus() === 'listening' || engine.getStatus() === 'starting') {
           engine.stop();
