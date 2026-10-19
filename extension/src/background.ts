@@ -79,6 +79,15 @@ chrome.commands.onCommand.addListener(async (command) => {
     if (tabId !== null) {
       await ensureContentScriptAndSend(tabId, { type: 'TOGGLE_DICTATION' });
     }
+  } else if (command === 'open-app-window') {
+    // Open the clean standalone VoiceText App Window (no tabs, no URL bar)
+    chrome.windows.create({
+      url: 'http://localhost:3000',
+      type: 'popup',
+      width: 1040,
+      height: 740,
+      focused: true,
+    });
   }
 });
 

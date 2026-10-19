@@ -39,6 +39,13 @@
         "mac": "Command+Shift+Space"
       },
       "description": "Start or stop voice dictation"
+    },
+    "open-app-window": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+V",
+        "mac": "Command+Shift+V"
+      },
+      "description": "Open VoiceText standalone App Window"
     }
   }
 }
