@@ -8,6 +8,14 @@ const __dirname = path.dirname(__filename);
 const distDir = path.join(__dirname, 'dist');
 const port = 3000;
 
+process.on('uncaughtException', (err) => {
+  console.error('Server uncaught exception:', err);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled rejection:', reason);
+});
+
 const mimeTypes = {
   '.html': 'text/html',
   '.js': 'text/javascript',
@@ -18,6 +26,14 @@ const mimeTypes = {
 };
 
 const server = http.createServer((req, res) => {
+  req.on('error', (err) => {
+    console.error('Request error:', err);
+  });
+
+  res.on('error', (err) => {
+    console.error('Response error:', err);
+  });
+
   const urlPath = req.url?.split('?')[0] || '/';
 
   // Handle direct extension download route
@@ -29,7 +45,12 @@ const server = http.createServer((req, res) => {
         'Content-Disposition': 'attachment; filename="universal-voice-to-text-extension.zip"',
         'Content-Length': fs.statSync(zipPath).size,
       });
-      fs.createReadStream(zipPath).pipe(res);
+      const zipStream = fs.createReadStream(zipPath);
+      zipStream.on('error', () => {
+        if (!res.headersSent) res.writeHead(500);
+        res.end();
+      });
+      zipStream.pipe(res);
       return;
     }
   }
@@ -43,13 +64,27 @@ const server = http.createServer((req, res) => {
       'Content-Type': mimeTypes[ext] || 'application/octet-stream',
       'Access-Control-Allow-Origin': '*',
     });
-    fs.createReadStream(filePath).pipe(res);
+    const fileStream = fs.createReadStream(filePath);
+    fileStream.on('error', () => {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
+    fileStream.pipe(res);
   } else {
     // SPA fallback
     const indexPath = path.join(distDir, 'index.html');
     res.writeHead(200, { 'Content-Type': 'text/html' });
-    fs.createReadStream(indexPath).pipe(res);
+    const indexStream = fs.createReadStream(indexPath);
+    indexStream.on('error', () => {
+      if (!res.headersSent) res.writeHead(500);
+      res.end();
+    });
+    indexStream.pipe(res);
   }
+});
+
+server.on('error', (err) => {
+  console.error('HTTP Server error:', err);
 });
 
 server.listen(port, 'localhost', () => {
