@@ -40,6 +40,64 @@ body {
   border-radius: 4px;
 }
 
+.app-brand-name {
+  font-weight: 700;
+  font-size: 14px;
+  color: #ffffff;
+  letter-spacing: -0.01em;
+}
+
+.version-pill {
+  font-size: 10px;
+  font-weight: 700;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 10px;
+  padding: 1px 6px;
+  letter-spacing: 0.02em;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.perm-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background-color: #27272a;
+  color: #38bdf8;
+  border: 1px solid #3f3f46;
+  border-radius: 5px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.perm-action-btn:hover {
+  background-color: #3b82f6;
+  border-color: #60a5fa;
+  color: #ffffff;
+}
+
+.perm-action-btn.needs-perm {
+  background: rgba(245, 158, 11, 0.2);
+  border-color: #f59e0b;
+  color: #fbbf24;
+  animation: pulse-perm 1.5s infinite;
+}
+
+@keyframes pulse-perm {
+  0% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.6); }
+  70% { box-shadow: 0 0 0 6px rgba(245, 158, 11, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0); }
+}
+
 .status-indicator {
   display: flex;
   align-items: center;
@@ -59,6 +117,17 @@ body {
 .status-dot.listening {
   background-color: #ef4444;
   box-shadow: 0 0 8px rgba(239, 68, 68, 0.85);
+}
+
+.status-dot.speaking {
+  background-color: #38bdf8;
+  box-shadow: 0 0 10px rgba(56, 189, 248, 1);
+  animation: pulse-speaking 1s infinite alternate;
+}
+
+@keyframes pulse-speaking {
+  0% { transform: scale(1); box-shadow: 0 0 4px rgba(56, 189, 248, 0.8); }
+  100% { transform: scale(1.35); box-shadow: 0 0 12px rgba(56, 189, 248, 1); }
 }
 
 .status-dot.error {
@@ -166,6 +235,18 @@ body {
   box-shadow: 0 0 18px rgba(239, 68, 68, 0.3);
 }
 
+.popup-mic-dock.speaking-alarm-active {
+  border-color: #38bdf8;
+  background: #0f1c2e;
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.5);
+  animation: dock-alarm-pulse 1.2s infinite alternate;
+}
+
+@keyframes dock-alarm-pulse {
+  0% { border-color: #38bdf8; box-shadow: 0 0 16px rgba(56, 189, 248, 0.4); }
+  100% { border-color: #60a5fa; box-shadow: 0 0 28px rgba(96, 165, 250, 0.7); }
+}
+
 .big-mic-btn {
   width: 40px;
   height: 40px;
@@ -193,6 +274,19 @@ body {
   animation: pulse-mic 1.6s infinite;
 }
 
+.big-mic-btn.speaking-pulsing {
+  background: #0284c7;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.9);
+  animation: pulse-speaking-mic 0.9s infinite;
+}
+
+@keyframes pulse-speaking-mic {
+  0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.85); transform: scale(1); }
+  50% { transform: scale(1.08); }
+  70% { box-shadow: 0 0 0 12px rgba(56, 189, 248, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); transform: scale(1); }
+}
+
 @keyframes pulse-mic {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
   70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
@@ -208,14 +302,46 @@ body {
   gap: 2px;
 }
 
+.mic-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .mic-title {
   font-size: 13px;
   font-weight: 700;
   color: #ffffff;
 }
 
+.mic-title.speaking-title {
+  color: #38bdf8;
+  text-shadow: 0 0 8px rgba(56, 189, 248, 0.6);
+}
+
+.speaking-badge {
+  font-size: 9px;
+  font-weight: 800;
+  color: #ffffff;
+  background: linear-gradient(135deg, #0284c7 0%, #06b6d4 100%);
+  border-radius: 4px;
+  padding: 1px 4px;
+  letter-spacing: 0.05em;
+  box-shadow: 0 0 6px rgba(6, 182, 212, 0.6);
+  animation: badge-pulse 1s infinite alternate;
+}
+
+@keyframes badge-pulse {
+  0% { opacity: 0.85; transform: scale(0.96); }
+  100% { opacity: 1; transform: scale(1.04); }
+}
+
 .popup-mic-dock.listening .mic-title {
   color: #f87171;
+}
+
+.popup-mic-dock.speaking-alarm-active .mic-title {
+  color: #38bdf8;
 }
 
 .mic-hint {
@@ -224,6 +350,12 @@ body {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.live-speaking-text {
+  color: #67e8f9;
+  font-weight: 600;
+  font-style: normal;
 }
 
 .dock-action-btn {

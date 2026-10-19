@@ -164,6 +164,8 @@ export const WebApp: React.FC = () => {
   };
 
   const isListening = state.status === 'listening' || state.status === 'starting';
+  const hasInterim = Boolean(state.interimText && state.interimText.trim().length > 0);
+  const isSpeaking = isListening && hasInterim;
 
   return (
     <div className={`easy-layout theme-${theme}`}>
@@ -172,6 +174,7 @@ export const WebApp: React.FC = () => {
         <div className="brand">
           <img src="assets/icon32.png" alt="Logo" width="28" height="28" />
           <span>VoiceText</span>
+          <span className="version-pill" style={{ fontSize: '11px', fontWeight: 700, color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', border: '1px solid rgba(56, 189, 248, 0.3)', borderRadius: '10px', padding: '1px 7px' }}>v1.0.0</span>
         </div>
 
         <div className="header-actions">
@@ -210,7 +213,7 @@ export const WebApp: React.FC = () => {
             className="extension-btn"
             title="Download Chrome/Edge extension (.zip)"
           >
-            Download Extension
+            Download Extension (v1.0.0)
           </a>
         </div>
       </header>
@@ -337,9 +340,9 @@ export const WebApp: React.FC = () => {
 
       {/* Floating Bottom Microphone Dock - Centered in the middle of the website */}
       <div className="floating-mic-dock">
-        <div className={`mic-pill-container ${isListening ? 'listening' : ''}`}>
+        <div className={`mic-pill-container ${isListening ? 'listening' : ''} ${isSpeaking ? 'speaking-alarm-active' : ''}`}>
           <button
-            className={`big-mic-btn ${isListening ? 'recording' : ''}`}
+            className={`big-mic-btn ${isListening ? 'recording' : ''} ${isSpeaking ? 'speaking-pulsing' : ''}`}
             onClick={handleToggle}
             title={isListening ? 'Click to Stop' : 'Click to Speak'}
           >
@@ -361,13 +364,24 @@ export const WebApp: React.FC = () => {
           </button>
 
           <div className="mic-info" onClick={handleToggle}>
-            <div className="mic-title">
-              {isListening ? 'Listening...' : 'Tap to Record'}
+            <div className="mic-title" style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <span style={{ color: isSpeaking ? '#38bdf8' : isListening ? '#f87171' : '#ffffff' }}>
+                {isSpeaking ? 'Speaking...' : isListening ? 'Listening...' : 'Tap to Record'}
+              </span>
+              {isSpeaking && (
+                <span style={{ fontSize: '9px', fontWeight: 800, color: '#ffffff', background: '#0284c7', borderRadius: '4px', padding: '1px 5px', letterSpacing: '0.04em' }}>
+                  SPEAKING
+                </span>
+              )}
             </div>
             <div className="mic-hint">
-              {isListening
-                ? (state.interimText ? `"${state.interimText}"` : 'Listening... speak naturally')
-                : 'Click mic or Start to begin speaking'}
+              {isSpeaking ? (
+                <span style={{ color: '#67e8f9', fontWeight: 600 }}>&ldquo;{state.interimText}&rdquo;</span>
+              ) : isListening ? (
+                'Listening... speak naturally'
+              ) : (
+                'Click mic or Start to begin speaking'
+              )}
             </div>
           </div>
 
@@ -375,7 +389,7 @@ export const WebApp: React.FC = () => {
           {isListening && (
             <SoundWave
               isListening={isListening}
-              hasSpeechActivity={Boolean(state.interimText)}
+              hasSpeechActivity={isSpeaking}
             />
           )}
 

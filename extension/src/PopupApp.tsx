@@ -28,7 +28,22 @@ export const PopupApp: React.FC = () => {
   const replacementsRef = useRef<WordReplacement[]>(replacements);
   replacementsRef.current = replacements;
 
+  const version = typeof chrome !== 'undefined' && chrome.runtime?.getManifest?.()?.version ? chrome.runtime.getManifest().version : '1.0.0';
+
   useEffect(() => {
+    // Check microphone permission status if supported
+    if (typeof navigator !== 'undefined' && navigator.permissions?.query) {
+      navigator.permissions
+        .query({ name: 'microphone' as PermissionName })
+        .then((perm) => {
+          setHasPermission(perm.state === 'granted');
+          perm.onchange = () => {
+            setHasPermission(perm.state === 'granted');
+          };
+        })
+        .catch(() => {});
+    }
+
     // Check if active tab is restricted (chrome://, edge://, etc.)
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       const url = tabs[0]?.url || '';
@@ -66,27 +81,11 @@ export const PopupApp: React.FC = () => {
     chrome.tabs.create({ url: permUrl });
   };
 
-  const switchToWebTab = () => {
-    chrome.tabs.query({}, (tabs) => {
-      const webTab =
-        tabs.find((t) => t.url && t.url.includes('localhost:3000')) ||
-        tabs.find((t) => t.url && (t.url.startsWith('http://') || t.url.startsWith('https://')));
-
-      if (webTab && typeof webTab.id === 'number') {
-        chrome.tabs.update(webTab.id, { active: true });
-        window.close();
-      } else {
-        chrome.tabs.create({ url: 'http://localhost:3000' });
-        window.close();
-      }
-    });
-  };
-
   useEffect(() => {
     if (sessionBoxRef.current) {
       sessionBoxRef.current.scrollTop = sessionBoxRef.current.scrollHeight;
     }
-  }, [state.sessionTranscript]);
+  }, [state.sessionTranscript, state.interimText]);
 
   const initLocalEngine = (): WebSpeechRecognitionEngine => {
     if (engineRef.current) return engineRef.current;
@@ -112,7 +111,6 @@ export const PopupApp: React.FC = () => {
       onError: (err: RecognitionErrorEvent) => {
         if (err.code === 'not-allowed') {
           setHasPermission(false);
-          openPermissionTab();
         }
         setState((prev) => ({ ...prev, status: 'error', errorMessage: err.message }));
       },
@@ -213,8 +211,13 @@ export const PopupApp: React.FC = () => {
   };
 
   const isListening = state.status === 'listening' || state.status === 'starting';
+  const hasInterim = Boolean(state.interimText && state.interimText.trim().length > 0);
+  const isSpeaking = isListening && hasInterim;
 
   const statusLabel = (() => {
+    if (isSpeaking) {
+      return 'Speaking...';
+    }
     switch (state.status) {
       case 'listening':
         return 'Listening...';
@@ -238,52 +241,83 @@ export const PopupApp: React.FC = () => {
 
   return (
     <div className="popup-container">
-      {/* Header */}
+      {/* Header with Title, Version Badge, Permission Button, and Close */}
       <header className="header">
         <div className="brand-group">
           <img src="icons/icon32.png" alt="VoiceText" className="header-logo" width="20" height="20" />
-          <div className="status-indicator">
-            <span
-              className={`status-dot ${isListening ? 'listening' : ''} ${
-                state.status === 'error' ? 'error' : ''
-              }`}
-            />
-            <span className="status-text">{statusLabel}</span>
-          </div>
+          <span className="app-brand-name">VoiceText</span>
+          <span className="version-pill" title="Installed Extension Version">v{version}</span>
         </div>
-        <button
-          className="close-btn"
-          onClick={handleCloseSession}
-          title="End session and clear transcript"
-        >
-          Close
-        </button>
+
+        <div className="header-actions">
+          <button
+            type="button"
+            className={`perm-action-btn ${hasPermission === false ? 'needs-perm' : ''}`}
+            onClick={openPermissionTab}
+            title="Enable or check Microphone Permissions"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            <span>{hasPermission === false ? 'Grant Mic' : 'Mic Access'}</span>
+          </button>
+
+          <button
+            className="close-btn"
+            onClick={handleCloseSession}
+            title="End session and close popup"
+          >
+            Close
+          </button>
+        </div>
       </header>
 
-      {/* Permission Request Banner */}
+      {/* Permission Warning Card if mic permission is needed or denied */}
       {hasPermission === false && (
         <div className="permission-prompt-card">
-          <div className="prompt-title">Microphone Access Needed</div>
-          <p className="prompt-sub">Click below to allow microphone access in Chrome:</p>
+          <div className="prompt-header">
+            <span className="prompt-title">Microphone Access Required</span>
+          </div>
+          <p className="prompt-sub">
+            The browser requires microphone permissions to convert your speech into text.
+          </p>
           <button className="grant-btn" onClick={openPermissionTab}>
-            Allow Microphone Access
+            Enable Microphone Permission
           </button>
         </div>
       )}
 
-      {/* Restricted Page Notice */}
+      {/* Restricted Page Notice for chrome:// and edge:// tabs */}
       {isRestricted && (
         <div className="restricted-notice">
-          <span>Note: On <code>chrome://</code> system pages, text is transcribed in the box below. To type into pages, open any website.</span>
+          <span>Note: On browser internal tabs (<code>chrome://</code>), dictation works inside this popup. To type directly into webpages, navigate to any website.</span>
         </div>
       )}
 
-      {/* Sleek Recorder Pill Dock ("below things" design) */}
-      <section className={`popup-mic-dock ${isListening ? 'listening' : ''}`}>
+      {/* Sleek Recorder Pill Dock with Visual Alarm for Speaking & Listening States */}
+      <section
+        className={`popup-mic-dock ${isListening ? 'listening' : ''} ${
+          isSpeaking ? 'speaking-alarm-active' : ''
+        }`}
+      >
         <button
-          className={`big-mic-btn ${isListening ? 'recording' : ''}`}
+          className={`big-mic-btn ${isListening ? 'recording' : ''} ${
+            isSpeaking ? 'speaking-pulsing' : ''
+          }`}
           onClick={handleToggle}
-          title={isListening ? 'Click to Stop' : 'Click to Speak'}
+          title={isListening ? 'Click to Stop Dictation' : 'Click to Speak'}
         >
           <svg
             width="22"
@@ -303,23 +337,36 @@ export const PopupApp: React.FC = () => {
         </button>
 
         <div className="mic-info" onClick={handleToggle}>
-          <div className="mic-title">
-            {isListening ? 'Listening...' : 'Tap to Record'}
+          <div className="mic-title-row">
+            <span
+              className={`status-dot ${isListening ? 'listening' : ''} ${
+                isSpeaking ? 'speaking' : ''
+              } ${state.status === 'error' ? 'error' : ''}`}
+            />
+            <span className={`mic-title ${isSpeaking ? 'speaking-title' : ''}`}>
+              {statusLabel}
+            </span>
+            {isSpeaking && <span className="speaking-badge">SPEAKING</span>}
           </div>
+
           <div className="mic-hint">
-            {isListening
-              ? (state.interimText ? `"${state.interimText}"` : 'Speak now...')
-              : isRestricted
-                ? 'Click to open web page'
-                : 'Click mic or Start to begin'}
+            {isSpeaking ? (
+              <span className="live-speaking-text">&ldquo;{state.interimText}&rdquo;</span>
+            ) : isListening ? (
+              'Listening... Speak now'
+            ) : isRestricted ? (
+              'Click Start to record in popup'
+            ) : (
+              'Click mic or Start to begin'
+            )}
           </div>
         </div>
 
-        {/* Sound Wave */}
+        {/* Dynamic Sound Wave visualizer */}
         {isListening && (
           <SoundWave
             isListening={isListening}
-            hasSpeechActivity={Boolean(state.interimText)}
+            hasSpeechActivity={isSpeaking}
           />
         )}
 
@@ -327,11 +374,11 @@ export const PopupApp: React.FC = () => {
           className={`dock-action-btn ${isListening ? 'stop' : 'start'}`}
           onClick={handleToggle}
         >
-          {isRestricted ? 'Web' : isListening ? 'Stop' : 'Start'}
+          {isListening ? 'Stop' : 'Start'}
         </button>
       </section>
 
-      {/* Word Replacement Section ("and the replace") */}
+      {/* Word Replacement Card */}
       <section className="replacement-card">
         <div className="section-header">
           <span className="section-title">Word Replacement</span>
@@ -382,21 +429,21 @@ export const PopupApp: React.FC = () => {
               </button>
             </div>
             <div className="rules-chip-list">
-            {replacements.map((r, i) => (
-              <span key={i} className="rule-chip">
-                <span className="rule-from">{r.from}</span>
-                <span className="rule-arrow">&rarr;</span>
-                <span className="rule-to">{r.to || '""'}</span>
-                <button
-                  type="button"
-                  className="rule-del"
-                  onClick={() => handleRemoveReplacement(i)}
-                  title="Remove rule"
-                >
-                  &times;
-                </button>
-              </span>
-            ))}
+              {replacements.map((r, i) => (
+                <span key={i} className="rule-chip">
+                  <span className="rule-from">{r.from}</span>
+                  <span className="rule-arrow">&rarr;</span>
+                  <span className="rule-to">{r.to || '""'}</span>
+                  <button
+                    type="button"
+                    className="rule-del"
+                    onClick={() => handleRemoveReplacement(i)}
+                    title="Remove rule"
+                  >
+                    &times;
+                  </button>
+                </span>
+              ))}
             </div>
           </div>
         )}

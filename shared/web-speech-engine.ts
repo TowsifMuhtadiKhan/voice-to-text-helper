@@ -236,7 +236,7 @@ export class WebSpeechRecognitionEngine implements ISpeechRecognitionEngine {
             this.setStatus('error');
             this.callbacks.onError({
               code: 'network',
-              message: 'Browser speech service connection lost. Please check internet or use the offline Desktop App.',
+              message: 'Browser speech service connection lost. Please check your internet connection.',
             });
           }
         }, 800);

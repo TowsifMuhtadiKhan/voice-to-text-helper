@@ -14,8 +14,10 @@
   },
   "include": [
     "shared/**/*.ts",
+    "shared/**/*.tsx",
     "extension/src/**/*.ts",
-    "desktop/src/**/*.ts",
-    "desktop/src/**/*.tsx"
+    "extension/src/**/*.tsx",
+    "web/src/**/*.ts",
+    "web/src/**/*.tsx"
   ]
 }

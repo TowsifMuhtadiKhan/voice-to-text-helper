@@ -154,6 +154,18 @@ body {
   background: #1f1719;
 }
 
+.mic-pill-container.speaking-alarm-active {
+  border-color: #38bdf8;
+  box-shadow: 0 0 30px rgba(56, 189, 248, 0.55);
+  background: #0f1c2e;
+  animation: web-alarm-pulse 1.2s infinite alternate;
+}
+
+@keyframes web-alarm-pulse {
+  0% { border-color: #38bdf8; box-shadow: 0 0 20px rgba(56, 189, 248, 0.45); }
+  100% { border-color: #60a5fa; box-shadow: 0 0 35px rgba(96, 165, 250, 0.75); }
+}
+
 .big-mic-btn {
   width: 52px;
   height: 52px;
@@ -185,6 +197,19 @@ body {
   0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
   70% { box-shadow: 0 0 0 14px rgba(239, 68, 68, 0); }
   100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+}
+
+.big-mic-btn.speaking-pulsing {
+  background: #0284c7;
+  box-shadow: 0 0 22px rgba(56, 189, 248, 0.9);
+  animation: pulse-web-speaking-mic 0.9s infinite;
+}
+
+@keyframes pulse-web-speaking-mic {
+  0% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0.85); transform: scale(1); }
+  50% { transform: scale(1.08); }
+  70% { box-shadow: 0 0 0 14px rgba(56, 189, 248, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(56, 189, 248, 0); transform: scale(1); }
 }
 
 .mic-info {
