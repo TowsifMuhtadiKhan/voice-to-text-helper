@@ -399,9 +399,28 @@ namespace UniversalVoiceToText
                 _engine = new SpeechRecognitionEngine();
             }
 
-            DictationGrammar dictation = new DictationGrammar();
-            dictation.Name = "Default Dictation";
-            _engine.LoadGrammar(dictation);
+            // Configure natural silence timeouts to prevent mid-word chopping
+            try
+            {
+                _engine.InitialSilenceTimeout = TimeSpan.FromSeconds(6);
+                _engine.BabbleTimeout = TimeSpan.FromSeconds(0);
+                _engine.EndSilenceTimeout = TimeSpan.FromMilliseconds(700);
+                _engine.EndSilenceTimeoutAmbiguous = TimeSpan.FromMilliseconds(900);
+            }
+            catch { }
+
+            try
+            {
+                DictationGrammar dictation = new DictationGrammar("grammar:dictation");
+                dictation.Name = "Default Dictation";
+                dictation.Weight = 1.0f;
+                _engine.LoadGrammar(dictation);
+            }
+            catch
+            {
+                DictationGrammar fallback = new DictationGrammar();
+                _engine.LoadGrammar(fallback);
+            }
 
             _engine.SpeechHypothesized += OnSpeechHypothesized;
             _engine.SpeechRecognized += OnSpeechRecognized;
@@ -523,6 +542,11 @@ namespace UniversalVoiceToText
         {
             if (e.Result != null && !string.IsNullOrWhiteSpace(e.Result.Text))
             {
+                // Discard low-confidence interim noise
+                if (string.IsNullOrEmpty(_simulatedPhrase) && e.Result.Confidence < 0.20f)
+                {
+                    return;
+                }
                 string interim = !string.IsNullOrEmpty(_simulatedPhrase) ? _simulatedPhrase : e.Result.Text;
                 EmitJson("{\"event\":\"interim\",\"text\":\"" + EscapeJson(interim) + "\"}");
             }
@@ -532,7 +556,26 @@ namespace UniversalVoiceToText
         {
             if (e.Result != null && !string.IsNullOrWhiteSpace(e.Result.Text))
             {
+                // Discard low-confidence noise, throat clears, and breathing artifacts
+                if (string.IsNullOrEmpty(_simulatedPhrase) && e.Result.Confidence < 0.30f)
+                {
+                    return;
+                }
+
                 string rawText = !string.IsNullOrEmpty(_simulatedPhrase) ? _simulatedPhrase : e.Result.Text.Trim();
+
+                // Filter out SAPI phantom ordinals generated during pauses or quiet breaths
+                if (string.IsNullOrEmpty(_simulatedPhrase) && e.Result.Confidence < 0.65f)
+                {
+                    string lower = rawText.ToLowerInvariant();
+                    if (lower == "fifth" || lower == "sixth" || lower == "eighth" ||
+                        lower == "fourth" || lower == "ninth" || lower == "seventh" ||
+                        lower == "third" || lower == "tenth")
+                    {
+                        return;
+                    }
+                }
+
                 string finalText = ApplyReplacements(rawText);
                 if (!_suppressInsertDuringSimulation)
                 {
