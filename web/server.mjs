@@ -18,6 +18,18 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection:', reason);
 });
 
+// Windows signal protection to prevent background shell disconnects
+process.on('SIGINT', () => {});
+process.on('SIGTERM', () => {});
+process.on('SIGHUP', () => {});
+if (process.platform === 'win32') {
+  process.on('SIGBREAK', () => {});
+}
+
+process.on('exit', (code) => {
+  console.log('Server process exited with code:', code);
+});
+
 // Keep process active in event loop
 setInterval(() => {}, 1000 * 60 * 60);
 
@@ -107,7 +119,7 @@ server.on('clientError', (err, socket) => {
   socket.end('HTTP/1.1 400 Bad Request\r\n\r\n');
 });
 
-let currentPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
+let currentPort = process.env.PORT ? parseInt(process.env.PORT, 10) : 4000;
 
 server.on('listening', () => {
   const addr = server.address();
