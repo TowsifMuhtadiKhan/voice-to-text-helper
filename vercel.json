@@ -1,0 +1,30 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "web/dist",
+  "cleanUrls": true,
+  "routes": [
+    {
+      "src": "/download/extension.zip",
+      "dest": "/universal-voice-to-text-extension.zip",
+      "headers": {
+        "Content-Type": "application/zip",
+        "Content-Disposition": "attachment; filename=\"universal-voice-to-text-extension.zip\""
+      }
+    },
+    {
+      "src": "/download/extension",
+      "dest": "/universal-voice-to-text-extension.zip",
+      "headers": {
+        "Content-Type": "application/zip",
+        "Content-Disposition": "attachment; filename=\"universal-voice-to-text-extension.zip\""
+      }
+    },
+    {
+      "handle": "filesystem"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ]
+}

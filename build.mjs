@@ -104,11 +104,22 @@ async function buildWeb() {
     fs.mkdirSync(targetFolder, { recursive: true });
     fs.cpSync(extDist, targetFolder, { recursive: true });
 
-    execFileSync('powershell', [
-      '-NoProfile',
-      '-Command',
-      `Compress-Archive -Path "${targetFolder}" -DestinationPath "${zipDest}" -Force`,
-    ]);
+    if (process.platform === 'win32') {
+      execFileSync('powershell', [
+        '-NoProfile',
+        '-Command',
+        `Compress-Archive -Path "${targetFolder}" -DestinationPath "${zipDest}" -Force`,
+      ]);
+    } else {
+      try {
+        execFileSync('zip', ['-r', zipDest, 'universal-voice-to-text-helper'], {
+          cwd: stagingDir,
+          stdio: 'ignore',
+        });
+      } catch {
+        // Zip utility might not be installed; fallback gracefully
+      }
+    }
     fs.rmSync(stagingDir, { recursive: true, force: true });
     console.log('✓ Packaged extension zip with root folder at web/dist/universal-voice-to-text-extension.zip');
   } catch (err) {
