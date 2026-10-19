@@ -511,27 +511,30 @@ body,
   background: rgba(239, 68, 68, 0.22);
 }
 
-.action-btn:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
-}
-
 .session-text {
   flex: 1;
-  overflow-y: auto;
+  width: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
   color: #e4e4e7;
+  font-family: inherit;
   font-size: 13px;
   line-height: 1.55;
-  white-space: pre-wrap;
-  word-break: break-word;
-  user-select: text;
-  padding-right: 4px;
+  padding: 4px 0;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
-.placeholder-text {
+.session-text::placeholder {
   color: #52525b;
   font-style: italic;
   font-size: 12px;
+}
+
+.session-text:focus {
+  outline: none;
 }
 
 /* Footer & Global Shortcut Bar */

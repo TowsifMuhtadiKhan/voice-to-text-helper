@@ -24,7 +24,7 @@ export const PopupApp: React.FC = () => {
   const [copied, setCopied] = useState(false);
 
   const engineRef = useRef<WebSpeechRecognitionEngine | null>(null);
-  const sessionBoxRef = useRef<HTMLDivElement | null>(null);
+  const sessionBoxRef = useRef<HTMLTextAreaElement | null>(null);
   const replacementsRef = useRef<WordReplacement[]>(replacements);
   replacementsRef.current = replacements;
 
@@ -448,13 +448,21 @@ export const PopupApp: React.FC = () => {
             </button>
           </div>
         </div>
-        <div ref={sessionBoxRef} className="session-text" aria-live="polite">
-          {state.sessionTranscript || (
-            <span className="placeholder-text">
-              Transcribed text appears here with word replacements automatically applied...
-            </span>
-          )}
-        </div>
+        <textarea
+          ref={sessionBoxRef}
+          className="session-text"
+          value={
+            state.sessionTranscript +
+            (state.interimText ? (state.sessionTranscript ? ' ' : '') + state.interimText : '')
+          }
+          onChange={(e) => {
+            const val = e.target.value;
+            setState((prev) => ({ ...prev, sessionTranscript: val, interimText: '' }));
+          }}
+          placeholder="Transcribed text appears here. Click anywhere to edit, type, or use Backspace..."
+          rows={5}
+          spellCheck={false}
+        />
       </section>
 
       {/* Footer */}

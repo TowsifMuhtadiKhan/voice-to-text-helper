@@ -337,7 +337,7 @@ if (!gotTheLock) {
           await new Promise((r) => setTimeout(r, 150));
           const snapshot = await mainWindow!.webContents.executeJavaScript(`({
             status: document.querySelector('[data-testid="recording-status"]')?.textContent || '',
-            transcript: document.querySelector('[data-testid="session-transcript"]')?.textContent || ''
+            transcript: (document.querySelector('[data-testid="session-transcript"]')?.value || document.querySelector('[data-testid="session-transcript"]')?.textContent || '').trim()
           })`);
           if (
             snapshot.transcript.toLowerCase() === 'hello how are you' &&

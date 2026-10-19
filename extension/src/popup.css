@@ -533,21 +533,30 @@ body {
 }
 
 .session-text {
-  max-height: 120px;
-  overflow-y: auto;
+  width: 100%;
+  min-height: 85px;
+  max-height: 140px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
   color: #e4e4e7;
+  font-family: inherit;
   font-size: 12px;
   line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  user-select: text;
-  padding-right: 3px;
+  padding: 4px 0;
+  box-sizing: border-box;
+  overflow-y: auto;
 }
 
-.placeholder-text {
+.session-text::placeholder {
   color: #52525b;
   font-style: italic;
   font-size: 11px;
+}
+
+.session-text:focus {
+  outline: none;
 }
 
 /* Footer */

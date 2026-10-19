@@ -26,7 +26,7 @@ export const App: React.FC = () => {
   const [newFrom, setNewFrom] = useState('');
   const [newTo, setNewTo] = useState('');
   const [copied, setCopied] = useState(false);
-  const sessionBoxRef = useRef<HTMLDivElement>(null);
+  const sessionBoxRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     let unsubscribe = () => {};
@@ -168,6 +168,11 @@ export const App: React.FC = () => {
 
   const handleClearText = () => {
     setState((prev) => ({ ...prev, sessionTranscript: '', interimText: '' }));
+  };
+
+  const handleTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const val = e.target.value;
+    setState((prev) => ({ ...prev, sessionTranscript: val, interimText: '' }));
   };
 
   const wordCount = state.sessionTranscript
@@ -375,17 +380,19 @@ export const App: React.FC = () => {
               </button>
             </div>
           </div>
-          <div
+          <textarea
             ref={sessionBoxRef}
             className="session-text"
             data-testid="session-transcript"
-          >
-            {state.sessionTranscript || (
-              <span className="placeholder-text">
-                Transcribed text appears here with word replacements automatically applied...
-              </span>
-            )}
-          </div>
+            value={
+              state.sessionTranscript +
+              (state.interimText ? (state.sessionTranscript ? ' ' : '') + state.interimText : '')
+            }
+            onChange={handleTextChange}
+            placeholder="Transcribed text appears here. Click anywhere to edit, type, or use Backspace..."
+            rows={6}
+            spellCheck={false}
+          />
         </section>
 
         {/* Global Shortcut Footer */}
