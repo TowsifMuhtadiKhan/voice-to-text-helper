@@ -1,0 +1,30 @@
+{
+  "name": "universal-voice-to-text-helper",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lightweight speech-to-text utility for Windows desktop (Electron + React + TypeScript) and Chrome/Edge browser extension (Manifest V3 + TypeScript).",
+  "main": "desktop/dist/main/main.js",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build": "node build.mjs",
+    "build:extension": "node build.mjs --extension-only",
+    "build:desktop": "node build.mjs --desktop-only",
+    "web": "node web/server.mjs",
+    "start": "npm run build:desktop && electron desktop/dist/main/main.js",
+    "test": "node tests/run-tests.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.287",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "electron": "^33.2.1",
+    "esbuild": "^0.24.0",
+    "jsdom": "^25.0.1",
+    "typescript": "^5.7.2"
+  }
+}

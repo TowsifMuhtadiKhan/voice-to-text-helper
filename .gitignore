@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production and distribution builds
+desktop/dist/
+extension/dist/
+web/dist/
+web/staging/
+web/staging-win/
+*.zip
+
+# Standalone built binaries in root
+Universal Voice-to-Text Helper.exe
+Universal Voice-to-Text Helper Setup.exe
+
+# Testing and coverage
+coverage/
+*.lcov
+test-results/
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment and IDE
+.env
+.env.local
+.vscode/
+.idea/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
