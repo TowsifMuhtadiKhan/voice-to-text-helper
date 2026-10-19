@@ -183,63 +183,8 @@ async function testDomInserterAndCtrlZCompatibility() {
   console.log('   ✓ Passed: <input>, <textarea>, contenteditable insertion & Ctrl+Z undo preservation');
 }
 
-async function testWindowsSpeechRecognitionHelper() {
-  console.log('3. Testing Native Windows OS Speech Recognition Helper (Win32VoiceHelper.exe)...');
-  const helperExe = path.join(rootDir, 'desktop', 'dist', 'Win32VoiceHelper.exe');
-  assert.ok(fs.existsSync(helperExe), 'Win32VoiceHelper.exe must exist in desktop/dist');
-
-  const events = await new Promise((resolve, reject) => {
-    const proc = spawn(helperExe, ['--worker'], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-    const collected = [];
-    let buffer = '';
-
-    const timeout = setTimeout(() => {
-      proc.kill();
-      reject(new Error('Timed out waiting for Win32VoiceHelper speech recognition'));
-    }, 8000);
-
-    proc.stdout.on('data', (chunk) => {
-      buffer += chunk.toString('utf8');
-      const lines = buffer.split(/\r?\n/);
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        const parsed = JSON.parse(line.trim());
-        collected.push(parsed);
-        if (parsed.event === 'ready') {
-          proc.stdin.write(
-            JSON.stringify({
-              cmd: 'simulate_speech',
-              text: 'Hello how are you',
-              noInsert: 'true',
-            }) + '\n'
-          );
-        }
-        if (parsed.event === 'status' && parsed.status === 'stopped' && collected.some((e) => e.event === 'final')) {
-          clearTimeout(timeout);
-          proc.kill();
-          resolve(collected);
-        }
-      }
-    });
-  });
-
-  const hasInterim = events.some((e) => e.event === 'interim' && e.text.length > 0);
-  const finalEvt = events.find((e) => e.event === 'final');
-
-  assert.ok(hasInterim, 'Windows Speech Engine must emit interim recognition hypotheses');
-  assert.ok(finalEvt, 'Windows Speech Engine must emit finalized recognition result');
-  assert.equal(
-    finalEvt.text.toLowerCase(),
-    'hello how are you',
-    'Finalized speech must match spoken words without rewriting'
-  );
-
-  console.log(`   ✓ Passed: Windows Speech Recognizer emitted interim & final ("${finalEvt.text}")`);
-}
-
 async function testNoForbiddenStorageOrAiFeatures() {
-  console.log('4. Auditing codebase for strictly excluded features & persistent storage...');
+  console.log('3. Auditing codebase for strictly excluded features & persistent storage...');
   const filesToScan = [
     'shared/speech-interface.ts',
     'shared/session-store.ts',
@@ -249,11 +194,6 @@ async function testNoForbiddenStorageOrAiFeatures() {
     'extension/src/PopupApp.tsx',
     'extension/src/popup.tsx',
     'extension/src/dom-inserter.ts',
-    'desktop/src/main/main.ts',
-    'desktop/src/main/preload.ts',
-    'desktop/src/main/windows-speech-engine.ts',
-    'desktop/src/main/mac-speech-engine.ts',
-    'desktop/src/renderer/App.tsx',
     'web/src/WebApp.tsx',
   ];
 
@@ -270,44 +210,10 @@ async function testNoForbiddenStorageOrAiFeatures() {
   console.log('   ✓ Passed: Zero persistent transcript storage or forbidden AI features');
 }
 
-async function testElectronDesktopE2E() {
-  console.log('5. Testing Electron + React Desktop Application End-to-End...');
-  const { default: electronBinary } = await import('electron');
-  const mainJs = path.join(rootDir, 'desktop', 'dist', 'main', 'main.js');
-
-  await new Promise((resolve, reject) => {
-    const proc = spawn(electronBinary, [mainJs, '--e2e-test'], {
-      cwd: rootDir,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-
-    let stdout = '';
-    let stderr = '';
-    proc.stdout.on('data', (d) => {
-      stdout += d.toString();
-    });
-    proc.stderr.on('data', (d) => {
-      stderr += d.toString();
-    });
-
-    proc.on('close', (code) => {
-      if (code === 0 && stdout.includes('E2E_PASS')) {
-        resolve();
-      } else {
-        reject(new Error(`Electron E2E exited with code ${code}\nStdout: ${stdout}\nStderr: ${stderr}`));
-      }
-    });
-  });
-
-  console.log('   ✓ Passed: Electron Desktop app launched, rendered speech, kept transcript on stop, and cleared on close');
-}
-
 async function main() {
   await testSessionStoreAndLanguageInterface();
   await testDomInserterAndCtrlZCompatibility();
-  await testWindowsSpeechRecognitionHelper();
   await testNoForbiddenStorageOrAiFeatures();
-  await testElectronDesktopE2E();
   console.log('\nAll automated verification tests passed!');
 }
 

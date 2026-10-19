@@ -205,14 +205,6 @@ export const WebApp: React.FC = () => {
             )}
           </button>
           <a
-            href="/download/windows"
-            download="Universal Voice-to-Text Helper Setup.exe"
-            className="extension-btn windows-btn"
-            title="Download Windows Installer Setup (.exe)"
-          >
-            Download Windows Installer
-          </a>
-          <a
             href="/download/extension.zip"
             download="universal-voice-to-text-extension.zip"
             className="extension-btn"
