@@ -41,8 +41,6 @@ export const PopupApp: React.FC = () => {
       setIsRestricted(restricted);
     });
 
-    checkPermission();
-
     // Fetch initial session state
     chrome.runtime.sendMessage({ type: 'GET_STATE' }, (resp?: SessionState) => {
       if (resp) {
@@ -62,16 +60,6 @@ export const PopupApp: React.FC = () => {
       engineRef.current?.dispose();
     };
   }, []);
-
-  const checkPermission = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      stream.getTracks().forEach((t) => t.stop());
-      setHasPermission(true);
-    } catch {
-      setHasPermission(false);
-    }
-  };
 
   const openPermissionTab = () => {
     const permUrl = chrome.runtime.getURL('permission.html');
@@ -123,6 +111,7 @@ export const PopupApp: React.FC = () => {
       },
       onError: (err: RecognitionErrorEvent) => {
         if (err.code === 'not-allowed') {
+          setHasPermission(false);
           openPermissionTab();
         }
         setState((prev) => ({ ...prev, status: 'error', errorMessage: err.message }));
@@ -134,22 +123,20 @@ export const PopupApp: React.FC = () => {
   };
 
   const handleToggle = async () => {
-    if (isRestricted) {
-      switchToWebTab();
-      return;
-    }
-
-    if (hasPermission === false) {
-      openPermissionTab();
-      return;
-    }
-
     if (state.status === 'listening' || state.status === 'starting') {
       if (engineRef.current) {
         await engineRef.current.stop();
       }
       chrome.runtime.sendMessage({ type: 'STOP_DICTATION' }).catch(() => {});
     } else {
+      if (isRestricted) {
+        // Active tab is chrome:// or edge:// where content scripts cannot inject.
+        // Run recognition directly inside the popup!
+        const engine = initLocalEngine();
+        await engine.start();
+        return;
+      }
+
       chrome.runtime.sendMessage(
         { type: 'START_DICTATION' },
         (resp?: SessionState & { contentScriptSent?: boolean }) => {
@@ -287,10 +274,7 @@ export const PopupApp: React.FC = () => {
       {/* Restricted Page Notice */}
       {isRestricted && (
         <div className="restricted-notice">
-          <span>Chrome blocks extensions from typing on <code>chrome://</code> pages.</span>
-          <button className="web-platform-link-btn" onClick={switchToWebTab}>
-            Switch to Web Page
-          </button>
+          <span>Note: On <code>chrome://</code> system pages, text is transcribed in the box below. To type into pages, open any website.</span>
         </div>
       )}
 
