@@ -18,6 +18,9 @@ process.on('unhandledRejection', (reason) => {
   console.error('Unhandled rejection:', reason);
 });
 
+// Keep process active in event loop
+setInterval(() => {}, 1000 * 60 * 60);
+
 const mimeTypes = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
