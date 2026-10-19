@@ -13,13 +13,17 @@ import {
   WordReplacement,
 } from '../../shared/word-replacer';
 import {
+  applyMarkdownFormat,
   cleanText,
   computeTextStatistics,
   convertTextCase,
   formatList,
+  getFormattedTimestamp,
+  MarkdownFormatType,
   TextCaseType,
   TextCleaningAction,
   TextStatistics,
+  VolatileClip,
 } from '../../shared/text-tools';
 import {
   checkVoiceCommand,
@@ -30,15 +34,17 @@ import {
   exportAsPdf,
   exportAsTxt,
 } from '../../shared/export-utils';
+import { NativeTTSEngine, TTSState } from '../../shared/tts-engine';
 import { SoundWave } from './SoundWave';
 import { MicTester } from './MicTester';
 
-type NavSection = 'workspace' | 'text-tools' | 'voice-tools' | 'export' | 'settings';
+type NavSection = 'workspace' | 'clips' | 'text-tools' | 'voice-tools' | 'export' | 'settings';
 
 export const WebApp: React.FC = () => {
   const storeRef = useRef<InMemorySessionStore | null>(null);
   const engineRef = useRef<WebSpeechRecognitionEngine | null>(null);
   const editorRef = useRef<HTMLTextAreaElement | null>(null);
+  const ttsRef = useRef<NativeTTSEngine | null>(null);
 
   if (!storeRef.current) {
     storeRef.current = new InMemorySessionStore('Ctrl+Shift+Space', 'en-US');
@@ -48,6 +54,7 @@ export const WebApp: React.FC = () => {
   const [activeNav, setActiveNav] = useState<NavSection>('workspace');
   const [focusMode, setFocusMode] = useState<boolean>(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Core Session State
   const [state, setState] = useState<SessionState>(() => storeRef.current!.getState());
@@ -62,6 +69,19 @@ export const WebApp: React.FC = () => {
     readingTimeMinutes: 0,
     speakingTimeMinutes: 0,
   });
+
+  // Volatile Multi-Draft Clips (strictly in RAM for this active session)
+  const [clips, setClips] = useState<VolatileClip[]>([]);
+
+  // Text-To-Speech (Native Web SpeechSynthesis)
+  const [ttsState, setTtsState] = useState<TTSState>({
+    isPlaying: false,
+    isPaused: false,
+    rate: 1.0,
+    pitch: 1.0,
+    voiceURI: null,
+  });
+  const [ttsVoices, setTtsVoices] = useState<SpeechSynthesisVoice[]>([]);
 
   // Recording Time & Speed
   const [recordingSeconds, setRecordingSeconds] = useState<number>(0);
@@ -105,6 +125,14 @@ export const WebApp: React.FC = () => {
   autoCopyRef.current = autoCopyOnStop;
   const lastSpeechTimeRef = useRef<number>(Date.now());
 
+  // Show fleeting UI toast
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 2400);
+  };
+
   // Listen for PWA install prompt
   useEffect(() => {
     const handleBeforeInstall = (e: Event) => {
@@ -131,6 +159,29 @@ export const WebApp: React.FC = () => {
     getDevices();
   }, []);
 
+  // Initialize Native TTS Engine
+  useEffect(() => {
+    const tts = new NativeTTSEngine((newTtsState) => {
+      setTtsState(newTtsState);
+    });
+    ttsRef.current = tts;
+
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      const loadVoices = () => {
+        const v = window.speechSynthesis.getVoices();
+        if (v.length > 0) {
+          setTtsVoices(v);
+        }
+      };
+      loadVoices();
+      window.speechSynthesis.onvoiceschanged = loadVoices;
+    }
+
+    return () => {
+      tts.stop();
+    };
+  }, []);
+
   // Main Speech Engine Lifecycle
   useEffect(() => {
     const store = storeRef.current!;
@@ -151,184 +202,176 @@ export const WebApp: React.FC = () => {
             clearInterval(recordingTimerRef.current);
             recordingTimerRef.current = null;
           }
-          if (editorRef.current) {
-            editorRef.current.value = committedTextRef.current;
-            updateStats();
-          }
-          if (autoCopyRef.current && committedTextRef.current) {
-            navigator.clipboard.writeText(committedTextRef.current).catch(() => {});
-          }
-        } else if (status === 'paused') {
-          if (recordingTimerRef.current) {
-            clearInterval(recordingTimerRef.current);
-            recordingTimerRef.current = null;
+          if (autoCopyRef.current && editorRef.current?.value) {
+            navigator.clipboard.writeText(editorRef.current.value).catch(() => {});
+            showToast('✓ Auto-copied to clipboard');
           }
         }
       },
-
       onInterimResult: (interimText: string) => {
         lastSpeechTimeRef.current = Date.now();
-        store.setInterimText(interimText);
+        let processed = applyWordReplacements(interimText, replacementsRef.current);
+        if (voiceCommandsRef.current) {
+          processed = processInlineVoicePunctuation(processed);
+        }
+        store.setInterimText(processed);
 
         if (editorRef.current) {
-          const el = editorRef.current;
-          let processedInterim = interimText;
-          if (voiceCommandsRef.current) {
-            processedInterim = processInlineVoicePunctuation(processedInterim);
-          }
-          processedInterim = applyWordReplacements(processedInterim, replacementsRef.current);
-
-          if (processedInterim) {
-            const base = committedTextRef.current;
-            const needsSpace = base.length > 0 && !/\s$/.test(base);
-            el.value = base + (needsSpace ? ' ' : '') + processedInterim;
-            if (autoScroll) {
-              el.scrollTop = el.scrollHeight;
-            }
-            updateStats();
+          const base = committedTextRef.current;
+          const display = base + (base && processed ? ' ' : '') + processed;
+          editorRef.current.value = display;
+          if (autoScroll) {
+            editorRef.current.scrollTop = editorRef.current.scrollHeight;
           }
         }
       },
-
       onFinalResult: (finalText: string) => {
         lastSpeechTimeRef.current = Date.now();
 
-        // 1. Check standalone Voice Commands
+        // Check standalone voice command
         if (voiceCommandsRef.current) {
-          const command = checkVoiceCommand(finalText);
-          if (command) {
-            handleExecuteVoiceCommand(command.type);
+          const cmd = checkVoiceCommand(finalText);
+          if (cmd) {
+            handleVoiceCommandAction(cmd.type);
+            store.setInterimText('');
             return;
           }
         }
 
-        // 2. Process inline punctuation & word replacements
-        let processed = finalText;
+        let processed = applyWordReplacements(finalText, replacementsRef.current);
         if (voiceCommandsRef.current) {
           processed = processInlineVoicePunctuation(processed);
         }
-        processed = applyWordReplacements(processed, replacementsRef.current);
 
-        // 3. Commit to session store and editor
-        const { insertedSegment } = store.appendFinalSegment(processed);
-        if (insertedSegment && editorRef.current) {
-          const el = editorRef.current;
-          const base = committedTextRef.current;
-          const needsSpace = base.length > 0 && !/\s$/.test(base) && !insertedSegment.startsWith('\n');
-          committedTextRef.current = base + (needsSpace ? ' ' : '') + insertedSegment;
-          el.value = committedTextRef.current;
+        const base = committedTextRef.current;
+        const newCommitted = base ? `${base} ${processed}` : processed;
+        committedTextRef.current = newCommitted;
+
+        store.appendFinalSegment(processed);
+        store.setInterimText('');
+
+        if (editorRef.current) {
+          editorRef.current.value = newCommitted;
           if (autoScroll) {
-            el.scrollTop = el.scrollHeight;
+            editorRef.current.scrollTop = editorRef.current.scrollHeight;
           }
         }
         updateStats();
       },
-
       onError: (err: RecognitionErrorEvent) => {
         store.setStatus('error', err.message);
       },
-    }, selectedLanguage);
-
-    engineRef.current = engine;
-
-    const unsubscribe = store.subscribe((nextState) => {
-      setState(nextState);
     });
 
-    if (editorRef.current) {
-      editorRef.current.focus();
-    }
+    engine.setLanguage(selectedLanguage);
+    engineRef.current = engine;
+
+    const unsubscribe = store.subscribe((newState) => {
+      setState(newState);
+    });
 
     return () => {
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+      }
       unsubscribe();
-      if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       engine.dispose();
     };
-  }, [selectedLanguage]);
+  }, [selectedLanguage, autoScroll]);
 
-  // Silence Monitor (Optional automatic pause on prolonged inactivity)
+  // Silence auto-pause watchdog
   useEffect(() => {
     if (!silencePauseEnabled) return;
+
     const interval = setInterval(() => {
       if (state.status === 'listening') {
-        const elapsedSinceSpeech = Date.now() - lastSpeechTimeRef.current;
-        if (elapsedSinceSpeech > 25000) {
-          // Pause recording after 25s of complete silence
+        const elapsed = Date.now() - lastSpeechTimeRef.current;
+        if (elapsed > 25000) {
           engineRef.current?.pause();
+          showToast('⏸ Paused due to silence');
         }
       }
     }, 3000);
+
     return () => clearInterval(interval);
   }, [silencePauseEnabled, state.status]);
 
-  const updateStats = () => {
-    const text = editorRef.current?.value || '';
-    setStats(computeTextStatistics(text));
-  };
+  // Handle voice command execution
+  const handleVoiceCommandAction = (action: string) => {
+    const el = editorRef.current;
+    if (!el) return;
 
-  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    committedTextRef.current = e.target.value;
-    updateStats();
-  };
-
-  const handleToggle = () => {
-    engineRef.current?.toggle();
-  };
-
-  const handlePause = () => {
-    engineRef.current?.pause();
-  };
-
-  const handleResume = () => {
-    engineRef.current?.resume();
-  };
-
-  const handleClear = () => {
-    if (editorRef.current && editorRef.current.value.trim().length > 0) {
-      if (!window.confirm('Are you sure you want to clear the entire transcription?')) {
-        return;
+    switch (action) {
+      case 'new-line': {
+        const base = committedTextRef.current;
+        committedTextRef.current = base + '\n';
+        el.value = committedTextRef.current;
+        showToast('Voice Command: New Line');
+        break;
+      }
+      case 'new-paragraph': {
+        const base = committedTextRef.current;
+        committedTextRef.current = base + '\n\n';
+        el.value = committedTextRef.current;
+        showToast('Voice Command: New Paragraph');
+        break;
+      }
+      case 'comma': {
+        const base = committedTextRef.current;
+        committedTextRef.current = base + ', ';
+        el.value = committedTextRef.current;
+        break;
+      }
+      case 'period': {
+        const base = committedTextRef.current;
+        committedTextRef.current = base + '. ';
+        el.value = committedTextRef.current;
+        break;
+      }
+      case 'question-mark': {
+        const base = committedTextRef.current;
+        committedTextRef.current = base + '? ';
+        el.value = committedTextRef.current;
+        break;
+      }
+      case 'exclamation': {
+        const base = committedTextRef.current;
+        committedTextRef.current = base + '! ';
+        el.value = committedTextRef.current;
+        break;
+      }
+      case 'copy':
+      case 'copy-text': {
+        handleCopy();
+        showToast('Voice Command: Copied');
+        break;
+      }
+      case 'select-all': {
+        el.focus();
+        el.select();
+        showToast('Voice Command: Selected All');
+        break;
+      }
+      case 'clear':
+      case 'clear-text': {
+        if (confirm('Voice command requested: Clear text?')) {
+          handleClear();
+        }
+        break;
       }
     }
-    storeRef.current?.clearSession();
-    committedTextRef.current = '';
-    setRecordingSeconds(0);
-    if (editorRef.current) {
-      editorRef.current.value = '';
-      editorRef.current.focus();
-    }
     updateStats();
   };
 
-  const handleCopy = () => {
-    const text = editorRef.current?.value || '';
-    if (text) {
-      navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handleSelectAll = () => {
-    if (editorRef.current) {
-      editorRef.current.focus();
-      editorRef.current.select();
-    }
-  };
-
-  // Keyboard Shortcuts (Section 5.6)
+  // Keyboard shortcut listener
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Focus Editor: Alt+E
-      if (e.altKey && (e.key === 'e' || e.key === 'E')) {
+      // Start / Stop Dictation: Ctrl+Shift+Space
+      if (e.ctrlKey && e.shiftKey && e.code === 'Space') {
         e.preventDefault();
-        editorRef.current?.focus();
+        handleToggle();
       }
-      // Toggle Text Tools: Alt+T
-      if (e.altKey && (e.key === 't' || e.key === 'T')) {
-        e.preventDefault();
-        setActiveNav((prev) => (prev === 'text-tools' ? 'workspace' : 'text-tools'));
-      }
-      // Pause/Resume: Alt+P
+      // Alt+P: Pause / Resume
       if (e.altKey && (e.key === 'p' || e.key === 'P')) {
         e.preventDefault();
         if (state.status === 'listening') {
@@ -337,64 +380,211 @@ export const WebApp: React.FC = () => {
           handleResume();
         }
       }
-      // Fullscreen / Focus Mode: F11 or Alt+F
+      // Alt+E: Focus Editor
+      if (e.altKey && (e.key === 'e' || e.key === 'E')) {
+        e.preventDefault();
+        editorRef.current?.focus();
+      }
+      // Alt+T: Open Text Tools
+      if (e.altKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault();
+        setActiveNav('text-tools');
+      }
+      // Alt+F: Toggle Focus Mode
       if (e.altKey && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
         setFocusMode((prev) => !prev);
       }
     };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [state.status]);
 
-  // Voice Command Dispatcher
-  const handleExecuteVoiceCommand = (type: string) => {
+  // Editor stats calculation
+  const updateStats = () => {
+    if (editorRef.current) {
+      const s = computeTextStatistics(editorRef.current.value);
+      setStats(s);
+    }
+  };
+
+  // Textarea input sync
+  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    committedTextRef.current = e.target.value;
+    updateStats();
+  };
+
+  // Start / Stop
+  const handleToggle = async () => {
+    if (state.status === 'listening' || state.status === 'starting' || state.status === 'paused') {
+      await engineRef.current?.stop();
+    } else {
+      await engineRef.current?.start();
+    }
+  };
+
+  // Pause
+  const handlePause = async () => {
+    await engineRef.current?.pause();
+    showToast('Recording paused');
+  };
+
+  // Resume
+  const handleResume = async () => {
+    await engineRef.current?.resume();
+    showToast('Recording resumed');
+  };
+
+  // Copy full document
+  const handleCopy = async () => {
+    const text = editorRef.current?.value || '';
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      showToast('✓ Copied to clipboard');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Ignore
+    }
+  };
+
+  // Select all
+  const handleSelectAll = () => {
+    if (editorRef.current) {
+      editorRef.current.focus();
+      editorRef.current.select();
+      showToast('Selected all text');
+    }
+  };
+
+  // Clear document
+  const handleClear = () => {
+    committedTextRef.current = '';
+    if (editorRef.current) {
+      editorRef.current.value = '';
+    }
+    storeRef.current?.clearSession();
+    setRecordingSeconds(0);
+    updateStats();
+    showToast('Cleared editor');
+  };
+
+  // Markdown Quick Format on Editor
+  const handleQuickFormat = (format: MarkdownFormatType) => {
     const el = editorRef.current;
     if (!el) return;
-
-    if (type === 'new-line') {
-      committedTextRef.current += '\n';
-      el.value = committedTextRef.current;
-    } else if (type === 'new-paragraph') {
-      committedTextRef.current += '\n\n';
-      el.value = committedTextRef.current;
-    } else if (type === 'copy-text') {
-      handleCopy();
-    } else if (type === 'select-all') {
-      handleSelectAll();
-    } else if (type === 'clear-text') {
-      handleClear();
-    }
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const res = applyMarkdownFormat(el.value, start, end, format);
+    committedTextRef.current = res.newText;
+    el.value = res.newText;
+    el.focus();
+    el.setSelectionRange(res.newStart, res.newEnd);
     updateStats();
+    showToast(`Applied ${format.toUpperCase()}`);
+  };
+
+  // Stash Clip into volatile session memory
+  const handleStashClip = () => {
+    const el = editorRef.current;
+    if (!el || !el.value.trim()) {
+      showToast('No text to stash');
+      return;
+    }
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    const textToStash = (start !== end ? el.value.substring(start, end) : el.value).trim();
+    if (!textToStash) return;
+
+    const words = textToStash.split(/\s+/).filter(Boolean);
+    const titleSnippet = words.slice(0, 5).join(' ') + (words.length > 5 ? '...' : '');
+    const newClip: VolatileClip = {
+      id: String(Date.now()),
+      title: titleSnippet || `Clip ${clips.length + 1}`,
+      content: textToStash,
+      createdAt: Date.now(),
+      wordCount: words.length,
+    };
+
+    setClips((prev) => [newClip, ...prev]);
+    showToast(`✓ Stashed clip (${words.length} words)`);
+  };
+
+  // Insert clip into editor
+  const handleInsertClip = (clip: VolatileClip) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const start = el.selectionStart ?? el.value.length;
+    const end = el.selectionEnd ?? el.value.length;
+    const before = el.value.substring(0, start);
+    const after = el.value.substring(end);
+    const newText = (before ? before + '\n\n' : '') + clip.content + (after ? '\n\n' + after : '');
+    committedTextRef.current = newText;
+    el.value = newText;
+    updateStats();
+    showToast('Inserted clip into editor');
+  };
+
+  // Replace editor text with clip
+  const handleLoadClip = (clip: VolatileClip) => {
+    const el = editorRef.current;
+    if (!el) return;
+    committedTextRef.current = clip.content;
+    el.value = clip.content;
+    updateStats();
+    showToast('Loaded clip as active draft');
+  };
+
+  // Delete clip
+  const handleDeleteClip = (id: string) => {
+    setClips((prev) => prev.filter((c) => c.id !== id));
+    showToast('Deleted clip');
+  };
+
+  // Text-To-Speech Read Aloud toggle
+  const handleToggleTTS = () => {
+    if (!ttsRef.current) return;
+    if (ttsState.isPlaying) {
+      ttsRef.current.stop();
+      showToast('Stopped Read Aloud');
+    } else {
+      const text = editorRef.current?.value || '';
+      if (!text.trim()) {
+        showToast('Nothing to read aloud');
+        return;
+      }
+      ttsRef.current.speak(text, selectedLanguage);
+      showToast('🔊 Reading document aloud');
+    }
   };
 
   // Text Case Transformation
   const handleApplyCase = (type: TextCaseType) => {
     const el = editorRef.current;
-    if (!el) return;
+    if (!el || !el.value) return;
 
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? el.value.length;
     const fullText = el.value;
 
-    if (start !== end && start !== null && end !== null) {
-      // Apply to selected text
+    if (start !== end) {
       const selected = fullText.substring(start, end);
       const converted = convertTextCase(selected, type);
       const newText = fullText.substring(0, start) + converted + fullText.substring(end);
       committedTextRef.current = newText;
       el.value = newText;
-      el.setSelectionRange(start, start + converted.length);
     } else {
-      // Apply to full document
       const converted = convertTextCase(fullText, type);
       committedTextRef.current = converted;
       el.value = converted;
     }
     updateStats();
+    showToast(`Converted to ${type.toUpperCase()}`);
   };
 
-  // Text Cleaning Transformation
+  // Text Cleaning Actions
   const handleApplyClean = (action: TextCleaningAction) => {
     const el = editorRef.current;
     if (!el || !el.value) return;
@@ -403,6 +593,7 @@ export const WebApp: React.FC = () => {
     committedTextRef.current = cleaned;
     el.value = cleaned;
     updateStats();
+    showToast(`Cleaned: ${action}`);
   };
 
   // List Transformation
@@ -426,6 +617,7 @@ export const WebApp: React.FC = () => {
       el.value = formatted;
     }
     updateStats();
+    showToast(`Applied ${type} list`);
   };
 
   // Advanced Find and Replace
@@ -480,6 +672,7 @@ export const WebApp: React.FC = () => {
     el.value = newText;
     updateStats();
     handleFindCount();
+    showToast('Replaced all occurrences');
   };
 
   // Custom Word Replacement Rules Management
@@ -499,6 +692,7 @@ export const WebApp: React.FC = () => {
     setReplacements((prev) => [...prev, newRule]);
     setNewFrom('');
     setNewTo('');
+    showToast('Added replacement rule');
   };
 
   const handleToggleRule = (index: number) => {
@@ -516,6 +710,7 @@ export const WebApp: React.FC = () => {
     setSelectedLanguage(code);
     engineRef.current?.setLanguage(code);
     storeRef.current?.setLanguage(code);
+    showToast(`Language set to ${code}`);
   };
 
   // PWA Installation Trigger
@@ -572,6 +767,9 @@ export const WebApp: React.FC = () => {
 
   return (
     <div className={`easy-layout theme-${theme} ${focusMode ? 'focus-mode' : ''}`}>
+      {/* Toast Notification */}
+      {toastMessage && <div className="app-toast-pill">{toastMessage}</div>}
+
       {/* Top Header */}
       {!focusMode && (
         <header className="easy-header">
@@ -656,72 +854,122 @@ export const WebApp: React.FC = () => {
         {/* Left Sidebar Navigation & Functional Panels */}
         {!focusMode && (
           <aside className={`sidebar-left ${mobileMenuOpen ? 'mobile-open' : ''}`}>
-            {/* Navigation Tabs (5 Defined Sections) */}
-            <nav className="sidebar-nav-tabs">
-              <button
-                type="button"
-                className={`nav-tab-btn ${activeNav === 'workspace' ? 'active' : ''}`}
-                onClick={() => { setActiveNav('workspace'); setMobileMenuOpen(false); }}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 20h9" />
-                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                </svg>
-                <span>Workspace</span>
-              </button>
+            {/* Linear & Notion Style Vertical Navigation Header */}
+            <div className="vertical-nav-container">
+              <span className="sidebar-section-header">WORKSPACE & TOOLS</span>
+              <nav className="vertical-nav-list">
+                <button
+                  type="button"
+                  className={`vertical-nav-item ${activeNav === 'workspace' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('workspace'); setMobileMenuOpen(false); }}
+                >
+                  <div className="nav-item-icon-box">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </div>
+                  <div className="nav-item-text">
+                    <span className="nav-item-title">Workspace</span>
+                    <span className="nav-item-desc">Live transcription & stats</span>
+                  </div>
+                  {stats.wordCount > 0 && <span className="nav-item-badge">{stats.wordCount}w</span>}
+                </button>
 
-              <button
-                type="button"
-                className={`nav-tab-btn ${activeNav === 'text-tools' ? 'active' : ''}`}
-                onClick={() => { setActiveNav('text-tools'); setMobileMenuOpen(false); }}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <polyline points="4 7 4 4 20 4 20 7" />
-                  <line x1="9" y1="20" x2="15" y2="20" />
-                  <line x1="12" y1="4" x2="12" y2="20" />
-                </svg>
-                <span>Text Tools</span>
-              </button>
+                <button
+                  type="button"
+                  className={`vertical-nav-item ${activeNav === 'clips' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('clips'); setMobileMenuOpen(false); }}
+                >
+                  <div className="nav-item-icon-box">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                    </svg>
+                  </div>
+                  <div className="nav-item-text">
+                    <span className="nav-item-title">Draft Clips</span>
+                    <span className="nav-item-desc">In-memory snippet scratchpad</span>
+                  </div>
+                  <span className="nav-item-badge">{clips.length}</span>
+                </button>
 
-              <button
-                type="button"
-                className={`nav-tab-btn ${activeNav === 'voice-tools' ? 'active' : ''}`}
-                onClick={() => { setActiveNav('voice-tools'); setMobileMenuOpen(false); }}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-                  <line x1="12" y1="19" x2="12" y2="23" />
-                  <line x1="8" y1="23" x2="16" y2="23" />
-                </svg>
-                <span>Voice Tools</span>
-              </button>
+                <button
+                  type="button"
+                  className={`vertical-nav-item ${activeNav === 'text-tools' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('text-tools'); setMobileMenuOpen(false); }}
+                >
+                  <div className="nav-item-icon-box">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <polyline points="4 7 4 4 20 4 20 7" />
+                      <line x1="9" y1="20" x2="15" y2="20" />
+                      <line x1="12" y1="4" x2="12" y2="20" />
+                    </svg>
+                  </div>
+                  <div className="nav-item-text">
+                    <span className="nav-item-title">Text Tools</span>
+                    <span className="nav-item-desc">Find, replace & clean text</span>
+                  </div>
+                </button>
 
-              <button
-                type="button"
-                className={`nav-tab-btn ${activeNav === 'export' ? 'active' : ''}`}
-                onClick={() => { setActiveNav('export'); setMobileMenuOpen(false); }}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                <span>Export & Share</span>
-              </button>
+                <button
+                  type="button"
+                  className={`vertical-nav-item ${activeNav === 'voice-tools' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('voice-tools'); setMobileMenuOpen(false); }}
+                >
+                  <div className="nav-item-icon-box">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                      <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+                      <line x1="12" y1="19" x2="12" y2="23" />
+                      <line x1="8" y1="23" x2="16" y2="23" />
+                    </svg>
+                  </div>
+                  <div className="nav-item-text">
+                    <span className="nav-item-title">Voice & Audio</span>
+                    <span className="nav-item-desc">Mic tester, speech & Read Aloud</span>
+                  </div>
+                  {ttsState.isPlaying && <span className="nav-item-badge tts">Reading</span>}
+                </button>
 
-              <button
-                type="button"
-                className={`nav-tab-btn ${activeNav === 'settings' ? 'active' : ''}`}
-                onClick={() => { setActiveNav('settings'); setMobileMenuOpen(false); }}
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-                <span>Settings</span>
-              </button>
-            </nav>
+                <button
+                  type="button"
+                  className={`vertical-nav-item ${activeNav === 'export' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('export'); setMobileMenuOpen(false); }}
+                >
+                  <div className="nav-item-icon-box">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  </div>
+                  <div className="nav-item-text">
+                    <span className="nav-item-title">Export & Share</span>
+                    <span className="nav-item-desc">PDF, Markdown & clipboard</span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  className={`vertical-nav-item ${activeNav === 'settings' ? 'active' : ''}`}
+                  onClick={() => { setActiveNav('settings'); setMobileMenuOpen(false); }}
+                >
+                  <div className="nav-item-icon-box">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="3" />
+                      <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                    </svg>
+                  </div>
+                  <div className="nav-item-text">
+                    <span className="nav-item-title">Settings & Privacy</span>
+                    <span className="nav-item-desc">Font size & volatile RAM privacy</span>
+                  </div>
+                </button>
+              </nav>
+            </div>
+
+            <div className="nav-divider" />
 
             {/* SECTION 1: WORKSPACE SIDEBAR PANEL */}
             {activeNav === 'workspace' && (
@@ -758,10 +1006,10 @@ export const WebApp: React.FC = () => {
 
                 {/* Quick Word Replacements Card */}
                 <div className="panel-card">
-                  <span className="panel-card-title">Word Replacement</span>
+                  <span className="panel-card-title">Custom Word Replacements</span>
                   <form className="replace-form" onSubmit={handleAddReplacement}>
                     <div className="form-field">
-                      <label>Find Word / Phrase</label>
+                      <label>Spoken Word / Phrase</label>
                       <input
                         type="text"
                         placeholder="e.g. 805 health care"
@@ -812,7 +1060,85 @@ export const WebApp: React.FC = () => {
               </div>
             )}
 
-            {/* SECTION 2: TEXT TOOLS PANEL */}
+            {/* SECTION 2: VOLATILE MULTI-DRAFT CLIPS */}
+            {activeNav === 'clips' && (
+              <div className="sidebar-content-panel">
+                <div className="panel-card">
+                  <div className="card-header-flex">
+                    <span className="panel-card-title">Volatile Clips Scratchpad</span>
+                    <button
+                      type="button"
+                      className="sub-btn primary mini"
+                      onClick={handleStashClip}
+                      title="Stash selected text or current document into an in-memory clip"
+                    >
+                      + Stash Current
+                    </button>
+                  </div>
+                  <span className="field-hint">
+                    Clips are kept exclusively in active tab RAM memory. Perfect for saving ideas, paragraph drafts, or separate sections without losing your main transcription!
+                  </span>
+
+                  {clips.length === 0 ? (
+                    <div className="empty-clips-box">
+                      <span>No saved clips yet.</span>
+                      <p>Highlight text or click <strong>"Stash Current"</strong> to save ideas here during this session.</p>
+                    </div>
+                  ) : (
+                    <div className="clips-scroll-list">
+                      {clips.map((clip) => (
+                        <div key={clip.id} className="clip-card-item">
+                          <div className="clip-item-header">
+                            <span className="clip-item-title">{clip.title}</span>
+                            <span className="clip-meta-tag">{clip.wordCount} words</span>
+                          </div>
+                          <p className="clip-snippet-preview">{clip.content}</p>
+                          <div className="clip-action-bar">
+                            <button
+                              type="button"
+                              className="clip-btn insert"
+                              onClick={() => handleInsertClip(clip)}
+                              title="Insert this clip at cursor in editor"
+                            >
+                              Insert
+                            </button>
+                            <button
+                              type="button"
+                              className="clip-btn load"
+                              onClick={() => handleLoadClip(clip)}
+                              title="Replace active document with this clip"
+                            >
+                              Load
+                            </button>
+                            <button
+                              type="button"
+                              className="clip-btn copy"
+                              onClick={() => {
+                                navigator.clipboard.writeText(clip.content);
+                                showToast('✓ Copied clip');
+                              }}
+                              title="Copy clip to clipboard"
+                            >
+                              Copy
+                            </button>
+                            <button
+                              type="button"
+                              className="clip-btn delete"
+                              onClick={() => handleDeleteClip(clip.id)}
+                              title="Delete clip from memory"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* SECTION 3: TEXT TOOLS PANEL */}
             {activeNav === 'text-tools' && (
               <div className="sidebar-content-panel">
                 {/* Advanced Find & Replace */}
@@ -969,9 +1295,63 @@ export const WebApp: React.FC = () => {
               </div>
             )}
 
-            {/* SECTION 3: VOICE TOOLS PANEL */}
+            {/* SECTION 4: VOICE & AUDIO TOOLS PANEL */}
             {activeNav === 'voice-tools' && (
               <div className="sidebar-content-panel">
+                {/* Native Text-To-Speech Read Aloud Controls */}
+                <div className="panel-card tts-card">
+                  <span className="panel-card-title">Text-to-Speech (Read Aloud)</span>
+                  <div className="tts-control-bar">
+                    <button
+                      type="button"
+                      className={`action-submit-btn ${ttsState.isPlaying ? 'tts-active' : ''}`}
+                      onClick={handleToggleTTS}
+                    >
+                      {ttsState.isPlaying ? '⏹ Stop Read Aloud' : '🔊 Listen to Document'}
+                    </button>
+                  </div>
+
+                  <div className="form-field" style={{ marginTop: '6px' }}>
+                    <label>Voice Speed: {ttsState.rate}x</label>
+                    <input
+                      type="range"
+                      min="0.5"
+                      max="2.0"
+                      step="0.25"
+                      value={ttsState.rate}
+                      onChange={(e) => {
+                        const val = Number(e.target.value);
+                        ttsRef.current?.setRate(val);
+                        setTtsState((prev) => ({ ...prev, rate: val }));
+                      }}
+                      className="custom-range-slider"
+                    />
+                  </div>
+
+                  {ttsVoices.length > 0 && (
+                    <div className="form-field">
+                      <label>Browser Voice</label>
+                      <select
+                        className="form-select"
+                        value={ttsState.voiceURI || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          ttsRef.current?.setVoiceURI(val);
+                          setTtsState((prev) => ({ ...prev, voiceURI: val }));
+                        }}
+                      >
+                        <option value="">Default System Voice</option>
+                        {ttsVoices.map((v) => (
+                          <option key={v.voiceURI} value={v.voiceURI}>
+                            {v.name} ({v.lang})
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <span className="field-hint">100% offline browser native audio synthesis. Zero cloud API calls.</span>
+                </div>
+
                 {/* Language Selection */}
                 <div className="panel-card">
                   <span className="panel-card-title">Speech Recognition Language</span>
@@ -1065,7 +1445,7 @@ export const WebApp: React.FC = () => {
               </div>
             )}
 
-            {/* SECTION 4: EXPORT & SHARE PANEL */}
+            {/* SECTION 5: EXPORT & SHARE PANEL */}
             {activeNav === 'export' && (
               <div className="sidebar-content-panel">
                 <div className="panel-card">
@@ -1139,19 +1519,23 @@ export const WebApp: React.FC = () => {
               </div>
             )}
 
-            {/* SECTION 5: SETTINGS & PRIVACY PANEL */}
+            {/* SECTION 6: SETTINGS & PRIVACY PANEL */}
             {activeNav === 'settings' && (
               <div className="sidebar-content-panel">
                 <div className="panel-card">
                   <span className="panel-card-title">Editor Appearance</span>
                   <div className="form-field">
-                    <label>Editor Font Size: {fontSize}px</label>
+                    <div className="slider-label-row">
+                      <label>Editor Font Size</label>
+                      <span className="slider-value-pill">{fontSize}px</span>
+                    </div>
                     <input
                       type="range"
                       min="14"
                       max="32"
                       value={fontSize}
                       onChange={(e) => setFontSize(Number(e.target.value))}
+                      className="custom-range-slider"
                     />
                   </div>
 
@@ -1239,6 +1623,33 @@ export const WebApp: React.FC = () => {
               </div>
 
               <div className="editor-actions">
+                {/* Quick Read Aloud on Toolbar */}
+                <button
+                  type="button"
+                  className={`editor-icon-btn ${ttsState.isPlaying ? 'tts-playing' : ''}`}
+                  onClick={handleToggleTTS}
+                  title={ttsState.isPlaying ? 'Stop Read Aloud' : 'Read Document Aloud (Text-to-Speech)'}
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon>
+                    <path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                  </svg>
+                </button>
+
+                {/* Stash Clip Button */}
+                <button
+                  type="button"
+                  className="editor-icon-btn"
+                  onClick={handleStashClip}
+                  title="Stash Current Text to Draft Clips"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1" />
+                  </svg>
+                </button>
+
+                {/* Focus Mode Button */}
                 <button
                   type="button"
                   className="editor-icon-btn"
@@ -1282,6 +1693,106 @@ export const WebApp: React.FC = () => {
                   disabled={!editorRef.current?.value}
                 >
                   Clear All
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Editor Formatting Bar */}
+            <div className="editor-quick-toolbar">
+              <div className="quick-tool-group">
+                <button
+                  type="button"
+                  className="quick-format-btn"
+                  onClick={() => handleQuickFormat('h1')}
+                  title="Heading 1"
+                >
+                  H1
+                </button>
+                <button
+                  type="button"
+                  className="quick-format-btn"
+                  onClick={() => handleQuickFormat('h2')}
+                  title="Heading 2"
+                >
+                  H2
+                </button>
+                <button
+                  type="button"
+                  className="quick-format-btn"
+                  onClick={() => handleQuickFormat('h3')}
+                  title="Heading 3"
+                >
+                  H3
+                </button>
+              </div>
+
+              <div className="quick-tool-divider" />
+
+              <div className="quick-tool-group">
+                <button
+                  type="button"
+                  className="quick-format-btn bold"
+                  onClick={() => handleQuickFormat('bold')}
+                  title="Bold (**text**)"
+                >
+                  B
+                </button>
+                <button
+                  type="button"
+                  className="quick-format-btn italic"
+                  onClick={() => handleQuickFormat('italic')}
+                  title="Italic (*text*)"
+                >
+                  I
+                </button>
+                <button
+                  type="button"
+                  className="quick-format-btn code"
+                  onClick={() => handleQuickFormat('code')}
+                  title="Inline Code (`code`)"
+                >
+                  &lt;&gt;
+                </button>
+                <button
+                  type="button"
+                  className="quick-format-btn quote"
+                  onClick={() => handleQuickFormat('quote')}
+                  title="Blockquote (> text)"
+                >
+                  &ldquo;&rdquo;
+                </button>
+              </div>
+
+              <div className="quick-tool-divider" />
+
+              <div className="quick-tool-group">
+                <button
+                  type="button"
+                  className="quick-format-btn stamp-btn"
+                  onClick={() => handleQuickFormat('timestamp')}
+                  title="Insert Timestamp [HH:MM:SS]"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" style={{ marginRight: '4px' }}>
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                  Timestamp
+                </button>
+                <button
+                  type="button"
+                  className="quick-format-btn"
+                  onClick={() => handleApplyList('bullet')}
+                  title="Bullet List"
+                >
+                  • List
+                </button>
+                <button
+                  type="button"
+                  className="quick-format-btn"
+                  onClick={() => handleApplyList('numbered')}
+                  title="Numbered List"
+                >
+                  1. List
                 </button>
               </div>
             </div>

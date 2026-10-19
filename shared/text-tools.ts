@@ -183,3 +183,99 @@ export function formatList(text: string, type: 'bullet' | 'numbered' | 'remove')
 
   return text;
 }
+
+export interface VolatileClip {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: number;
+  wordCount: number;
+}
+
+export function getFormattedTimestamp(): string {
+  const now = new Date();
+  return now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+export type MarkdownFormatType = 'h1' | 'h2' | 'h3' | 'bold' | 'italic' | 'code' | 'quote' | 'timestamp';
+
+export function applyMarkdownFormat(
+  text: string,
+  start: number,
+  end: number,
+  format: MarkdownFormatType
+): { newText: string; newStart: number; newEnd: number } {
+  const before = text.substring(0, start);
+  const selected = text.substring(start, end);
+  const after = text.substring(end);
+
+  switch (format) {
+    case 'h1': {
+      const heading = `# ${selected || 'Heading 1'}\n`;
+      return {
+        newText: before + heading + after,
+        newStart: start,
+        newEnd: start + heading.length,
+      };
+    }
+    case 'h2': {
+      const heading = `## ${selected || 'Heading 2'}\n`;
+      return {
+        newText: before + heading + after,
+        newStart: start,
+        newEnd: start + heading.length,
+      };
+    }
+    case 'h3': {
+      const heading = `### ${selected || 'Heading 3'}\n`;
+      return {
+        newText: before + heading + after,
+        newStart: start,
+        newEnd: start + heading.length,
+      };
+    }
+    case 'bold': {
+      const wrapped = `**${selected || 'bold text'}**`;
+      return {
+        newText: before + wrapped + after,
+        newStart: start + 2,
+        newEnd: start + wrapped.length - 2,
+      };
+    }
+    case 'italic': {
+      const wrapped = `*${selected || 'italic text'}*`;
+      return {
+        newText: before + wrapped + after,
+        newStart: start + 1,
+        newEnd: start + wrapped.length - 1,
+      };
+    }
+    case 'code': {
+      const wrapped = `\`${selected || 'code'}\``;
+      return {
+        newText: before + wrapped + after,
+        newStart: start + 1,
+        newEnd: start + wrapped.length - 1,
+      };
+    }
+    case 'quote': {
+      const wrapped = `> ${selected || 'Quote'}\n`;
+      return {
+        newText: before + wrapped + after,
+        newStart: start,
+        newEnd: start + wrapped.length,
+      };
+    }
+    case 'timestamp': {
+      const stamp = `[${getFormattedTimestamp()}] `;
+      return {
+        newText: before + stamp + after,
+        newStart: start + stamp.length,
+        newEnd: start + stamp.length,
+      };
+    }
+    default:
+      return { newText: text, newStart: start, newEnd: end };
+  }
+}
+
